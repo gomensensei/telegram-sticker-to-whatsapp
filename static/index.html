@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="zh-HK">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#091312">
+    <meta
+      name="description"
+      content="一鍵將 Telegram 貼圖包轉成 WhatsApp 相容 .wastickers。"
+    >
+    <title>TG → WA 一鍵貼圖轉換</title>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/app.css">
+  </head>
+  <body>
+    <div class="ambient ambient-one" aria-hidden="true"></div>
+    <div class="ambient ambient-two" aria-hidden="true"></div>
+
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="TG 轉 WA 首頁">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 40 40">
+            <path d="M8 20.2 31.8 9.8c1.1-.5 2.1.3 1.8 1.8l-4 19c-.3 1.4-1.2 1.7-2.4 1l-6.1-4.5-3 2.9c-.3.3-.6.6-1.3.6l.4-6.2L28.6 14c.5-.4-.1-.7-.7-.3L13.8 22.6l-6-1.9c-1.3-.4-1.3-1.3.2-1.9Z"/>
+          </svg>
+        </span>
+        <span>
+          <strong>TG <i>→</i> WA</strong>
+          <small>Sticker Relay</small>
+        </span>
+      </a>
+
+      <div class="top-actions">
+        <span class="privacy-pill">
+          <i aria-hidden="true"></i>
+          只在本機處理
+        </span>
+        <button class="icon-button" id="shutdownButton" type="button" title="關閉工具">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 2v10M6.7 5.8a8 8 0 1 0 10.6 0"/>
+          </svg>
+          <span class="sr-only">關閉工具</span>
+        </button>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="eyebrow"><span>01</span> Paste. Convert. Send.</div>
+        <h1>Telegram 貼圖，<br><em>無痛搬去 WhatsApp。</em></h1>
+        <p>
+          貼一條 sticker pack 連結，自動處理靜態、動畫、影片貼圖，
+          超過 30 張會自動分成 Part 1、2、3，直到完成。
+        </p>
+        <div class="flow-chips" aria-label="轉換流程">
+          <span><b>1</b> 貼連結</span>
+          <i>→</i>
+          <span><b>2</b> 自動轉檔</span>
+          <i>→</i>
+          <span><b>3</b> 掃 QR</span>
+        </div>
+      </section>
+
+      <section class="workspace-grid">
+        <article class="converter-card">
+          <div class="card-heading">
+            <div>
+              <span class="section-kicker">NEW CONVERSION</span>
+              <h2>開始轉換</h2>
+            </div>
+            <span class="format-badge">.wastickers</span>
+          </div>
+
+          <div class="notice hidden" id="savedTokenNotice">
+            <span class="notice-icon" aria-hidden="true">✓</span>
+            <div>
+              <strong>Telegram 已連接</strong>
+              <small>已安全使用上次保存嘅 Bot Token</small>
+            </div>
+            <button type="button" id="forgetTokenButton">移除</button>
+          </div>
+
+          <form id="convertForm">
+            <div class="field">
+              <div class="field-label-row">
+                <label for="telegramUrl">Telegram 貼圖包連結</label>
+                <span>必填</span>
+              </div>
+              <div class="input-shell input-shell-large">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M10.6 13.4a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.7 1.7M13.4 10.6a4 4 0 0 0-5.7 0l-3 3a4 4 0 1 0 5.7 5.7l1.7-1.7"/>
+                </svg>
+                <input
+                  id="telegramUrl"
+                  name="telegramUrl"
+                  type="url"
+                  inputmode="url"
+                  autocomplete="off"
+                  placeholder="https://t.me/addstickers/..."
+                  required
+                >
+                <button class="paste-button" id="pasteButton" type="button">
+                  貼上
+                </button>
+              </div>
+              <small class="field-hint">
+                Telegram 入面打開貼圖包 → 分享 → 複製連結
+              </small>
+            </div>
+
+            <div class="field" id="tokenField">
+              <div class="field-label-row">
+                <label for="botToken">Telegram Bot Token</label>
+                <a href="https://t.me/BotFather" target="_blank" rel="noreferrer">
+                  去 @BotFather 取得
+                </a>
+              </div>
+              <div class="input-shell">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="8" cy="15" r="4"></circle>
+                  <path d="m11 12 8-8 2 2-2 2 1.5 1.5-2 2L17 10l-3 3"/>
+                </svg>
+                <input
+                  id="botToken"
+                  name="botToken"
+                  type="password"
+                  autocomplete="off"
+                  placeholder="123456789:AA..."
+                >
+                <button class="reveal-button" id="revealTokenButton" type="button">
+                  顯示
+                </button>
+              </div>
+              <div class="token-help" id="tokenHelp">
+                <div><b>1</b><span>同 @BotFather 講 <code>/newbot</code></span></div>
+                <div><b>2</b><span>跟指示改名，複製佢俾你嘅 Token</span></div>
+                <div><b>3</b><span>只需設定一次，之後毋須再輸入</span></div>
+              </div>
+              <label class="check-row">
+                <input id="rememberToken" type="checkbox" checked>
+                <span class="fake-check" aria-hidden="true"></span>
+                用 Windows 使用者加密保存，只需設定一次
+              </label>
+            </div>
+
+            <details class="advanced">
+              <summary>
+                <span>貼圖包資料</span>
+                <small>選填</small>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="m7 10 5 5 5-5"/>
+                </svg>
+              </summary>
+              <div class="advanced-grid">
+                <div class="field">
+                  <label for="packTitle">自訂名稱</label>
+                  <input
+                    id="packTitle"
+                    type="text"
+                    maxlength="128"
+                    placeholder="留空會沿用 Telegram 名稱"
+                  >
+                </div>
+                <div class="field">
+                  <label for="packAuthor">作者</label>
+                  <input
+                    id="packAuthor"
+                    type="text"
+                    maxlength="128"
+                    value="Telegram 轉換"
+                    required
+                  >
+                </div>
+              </div>
+            </details>
+
+            <div class="form-error hidden" id="formError" role="alert"></div>
+
+            <button class="primary-button" id="convertButton" type="submit">
+              <span class="button-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M5 12h14M14 7l5 5-5 5"/>
+                </svg>
+              </span>
+              <span>
+                <strong>一鍵轉成 WhatsApp 貼圖</strong>
+                <small>自動下載、壓縮、分包</small>
+              </span>
+              <span class="button-shine" aria-hidden="true"></span>
+            </button>
+          </form>
+        </article>
+
+        <aside class="side-panel">
+          <div class="side-art" aria-hidden="true">
+            <span class="orb orb-tg">
+              <svg viewBox="0 0 40 40">
+                <path d="M8 20.2 31.8 9.8c1.1-.5 2.1.3 1.8 1.8l-4 19c-.3 1.4-1.2 1.7-2.4 1l-6.1-4.5-3 2.9c-.3.3-.6.6-1.3.6l.4-6.2L28.6 14c.5-.4-.1-.7-.7-.3L13.8 22.6l-6-1.9c-1.3-.4-1.3-1.3.2-1.9Z"/>
+              </svg>
+            </span>
+            <span class="relay-line">
+              <i></i><i></i><i></i>
+            </span>
+            <span class="orb orb-wa">
+              <svg viewBox="0 0 40 40">
+                <path d="M20 6a14 14 0 0 0-12 21.2L6 34l7-1.9A14 14 0 1 0 20 6Z"/>
+                <path d="M15.4 13.5c-.4-1-1-1-1.4-1h-1c-.5 0-1.2.2-1.8 1-.6.8-2.3 2.3-2.3 5.5s2.4 6.4 2.7 6.8c.3.4 4.6 7.1 11.4 9.6 5.6 2.1 6.8.4 8-1 1.3-1.4 1.7-3.5 1.8-4.1.1-.6.1-1.1-.3-1.4-.4-.2-2.5-1.2-2.9-1.4-.4-.1-.9-.2-1.3.4l-1.9 2.3c-.3.4-.7.5-1.3.2-3.3-1.6-5.5-3-7.7-6.8-.6-1 .6-.9 1.6-3 .2-.4.1-.8-.1-1.2l-2.5-5.9Z"/>
+              </svg>
+            </span>
+          </div>
+          <div class="side-copy">
+            <span class="section-kicker">WHAT IT HANDLES</span>
+            <h3>格式唔使理，<br>交俾工具處理。</h3>
+          </div>
+          <ul class="capability-list">
+            <li>
+              <span>靜態貼圖</span>
+              <b>WEBP / PNG</b>
+              <i>✓</i>
+            </li>
+            <li>
+              <span>動畫貼圖</span>
+              <b>TGS / WEBM</b>
+              <i>✓</i>
+            </li>
+            <li>
+              <span>自動分包</span>
+              <b>30 張／Part</b>
+              <i>✓</i>
+            </li>
+            <li>
+              <span>檔案限制</span>
+              <b>自動壓到合規</b>
+              <i>✓</i>
+            </li>
+          </ul>
+          <div class="privacy-note">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="5" y="10" width="14" height="11" rx="3"></rect>
+              <path d="M8 10V7a4 4 0 0 1 8 0v3"/>
+            </svg>
+            <p>
+              <strong>Private by default</strong>
+              貼圖喺你部電腦處理，唔會上載去第三方轉檔網站。
+            </p>
+          </div>
+        </aside>
+      </section>
+
+      <section class="status-card hidden" id="statusCard" aria-live="polite">
+        <div class="status-header">
+          <div class="working-mark" id="workingMark">
+            <span></span><span></span><span></span>
+          </div>
+          <div>
+            <span class="section-kicker" id="statusKicker">CONVERTING</span>
+            <h2 id="statusTitle">正在準備…</h2>
+            <p id="statusMessage">正在檢查 Telegram 貼圖包。</p>
+          </div>
+          <strong class="progress-number" id="progressNumber">0%</strong>
+        </div>
+        <div
+          class="progress-track"
+          role="progressbar"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow="0"
+          id="progressTrack"
+        >
+          <i id="progressBar"></i>
+        </div>
+        <div class="stepper">
+          <div data-phase="validate"><b>1</b><span>檢查</span></div>
+          <div data-phase="download"><b>2</b><span>下載</span></div>
+          <div data-phase="convert"><b>3</b><span>轉檔</span></div>
+          <div data-phase="package"><b>4</b><span>封裝</span></div>
+          <div data-phase="share"><b>5</b><span>完成</span></div>
+        </div>
+        <details class="log-panel">
+          <summary>顯示技術紀錄</summary>
+          <pre id="jobLog"></pre>
+        </details>
+        <button class="text-button" id="cancelButton" type="button">取消轉換</button>
+      </section>
+
+      <section class="result-card hidden" id="resultCard" aria-live="polite">
+        <div class="result-copy">
+          <span class="success-burst" aria-hidden="true">✓</span>
+          <span class="section-kicker">READY TO SEND</span>
+          <h2>轉換完成。</h2>
+          <p id="resultSummary">WhatsApp 貼圖包已經準備好。</p>
+          <div class="package-list" id="packageList"></div>
+          <div class="result-actions">
+            <button class="secondary-button" id="openFolderButton" type="button">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M3 7h7l2 2h9v10H3z"/>
+              </svg>
+              開啟輸出資料夾
+            </button>
+            <button class="secondary-button" id="copyLinkButton" type="button">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="9" y="9" width="11" height="11" rx="2"/>
+                <path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3"/>
+              </svg>
+              <span id="copyLinkLabel">複製手機連結</span>
+            </button>
+          </div>
+        </div>
+        <div class="qr-panel">
+          <div class="qr-frame">
+            <img id="shareQr" alt="手機下載貼圖包 QR Code">
+            <span class="qr-corner qr-a"></span>
+            <span class="qr-corner qr-b"></span>
+            <span class="qr-corner qr-c"></span>
+            <span class="qr-corner qr-d"></span>
+          </div>
+          <strong>手機掃一掃</strong>
+          <p>同一個 Wi-Fi 下掃碼下載，再用 Sticker Maker 加入 WhatsApp。</p>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <span>TG → WA Sticker Relay</span>
+      <span>輸出符合 WhatsApp 512 × 512 貼圖規格</span>
+    </footer>
+
+    <div class="fatal-overlay hidden" id="fatalOverlay">
+      <div>
+        <h2>連接唔到本機工具</h2>
+        <p>請關閉此頁，再雙擊「啟動轉換工具.bat」。</p>
+      </div>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

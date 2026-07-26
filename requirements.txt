@@ -1,0 +1,2 @@
+sticker-convert==2.21.0.1
+
