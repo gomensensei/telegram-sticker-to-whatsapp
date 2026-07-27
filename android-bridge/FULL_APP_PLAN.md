@@ -55,6 +55,16 @@
 - detailed frame format, crop, stride, position, and limit diagnostics
 - regression coverage for the real 479 × 512 Telegram WEBM dimensions
 
+## Completed in 2.1.5
+
+- one sequential WEBM decode shared by every quality and FPS attempt
+- guarded 512 × 512 composed-frame cache with a low-memory fallback
+- balanced mobile libwebp compression search without relaxing output limits
+- per-sticker download and animation progress plus visible whole-pack progress
+- decode and per-sticker safety deadlines with actionable failure messages
+- architectural review of SigStick's server import and preloaded provider
+  handoff, without copying proprietary code or assets
+
 ## Non-negotiable output contract
 
 The app never exposes an animated pack to WhatsApp unless every sticker:

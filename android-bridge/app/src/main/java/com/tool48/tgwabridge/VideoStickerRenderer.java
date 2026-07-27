@@ -10,8 +10,10 @@ import android.graphics.Paint;
 import android.media.MediaMetadataRetriever;
 import android.net.Uri;
 import android.os.Build;
+import android.os.SystemClock;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 
 final class VideoStickerRenderer {
@@ -19,6 +21,31 @@ final class VideoStickerRenderer {
         extends IOException {
         NonAnimatedDecodeException(String message) {
             super(message);
+        }
+    }
+
+    private static final class CacheCapacityException
+        extends IOException {
+        CacheCapacityException(String message) {
+            super(message);
+        }
+    }
+
+    private static final class FrameCache implements AutoCloseable {
+        final List<Bitmap> frames;
+
+        FrameCache(List<Bitmap> frames) {
+            this.frames = frames;
+        }
+
+        @Override
+        public void close() {
+            for (Bitmap frame : frames) {
+                if (frame != null && !frame.isRecycled()) {
+                    frame.recycle();
+                }
+            }
+            frames.clear();
         }
     }
 
@@ -64,6 +91,8 @@ final class VideoStickerRenderer {
 
     private static final int SIZE = 512;
     private static final int WHATSAPP_LIMIT = 500 * 1024;
+    private static final long CACHE_HEAP_RESERVE = 24L * 1024L * 1024L;
+    private static final long MAX_RENDER_MS = 5L * 60L * 1_000L;
     private static final int[][] PROFILES = {
         {20, 88},
         {18, 82},
@@ -146,47 +175,104 @@ final class VideoStickerRenderer {
         VideoStickerSettings settings,
         ProgressListener listener
     ) throws IOException {
-        IOException lastError = null;
-        for (int profileIndex = 0; profileIndex < PROFILES.length; profileIndex++) {
-            int fps = PROFILES[profileIndex][0];
-            int quality = PROFILES[profileIndex][1];
-            int startPercent = profileIndex * 100 / PROFILES.length;
+        long startedAt = SystemClock.elapsedRealtime();
+        FrameCache cache = null;
+        IOException sequentialCacheError = null;
+        try {
+            cache = decodeOnce(
+                context,
+                uri,
+                settings,
+                listener,
+                startedAt
+            );
+        } catch (CacheCapacityException error) {
             if (listener != null) {
                 listener.onProgress(
-                    startPercent,
-                    "Encoding " + fps + " FPS at quality " + quality + "..."
+                    0,
+                    "Using the low-memory compatibility encoder..."
                 );
             }
-            try {
-                Result result = encode(
-                    context,
-                    uri,
-                    settings,
-                    fps,
-                    quality,
-                    listener,
-                    profileIndex
+        } catch (IOException error) {
+            sequentialCacheError = error;
+            if (listener != null) {
+                listener.onProgress(
+                    0,
+                    "Using the Android compatibility decoder..."
                 );
-                if (result.data.length <= WHATSAPP_LIMIT) {
-                    validate(result);
-                    if (listener != null) {
-                        listener.onProgress(
-                            100,
-                            "Animated WebP passed WhatsApp validation."
+            }
+        }
+
+        IOException lastError = null;
+        try {
+            for (
+                int profileIndex = 0;
+                profileIndex < PROFILES.length;
+                profileIndex++
+            ) {
+                checkRenderDeadline(startedAt);
+                int fps = PROFILES[profileIndex][0];
+                int quality = PROFILES[profileIndex][1];
+                int startPercent = profileStart(
+                    profileIndex,
+                    cache != null
+                );
+                if (listener != null) {
+                    listener.onProgress(
+                        startPercent,
+                        "Encoding "
+                            + fps
+                            + " FPS at quality "
+                            + quality
+                            + "..."
+                    );
+                }
+                try {
+                    Result result = cache == null
+                        ? encode(
+                            context,
+                            uri,
+                            settings,
+                            fps,
+                            quality,
+                            listener,
+                            profileIndex,
+                            sequentialCacheError
+                        )
+                        : encodeFromCache(
+                            cache,
+                            settings,
+                            fps,
+                            quality,
+                            listener,
+                            profileIndex,
+                            startedAt
                         );
+                    if (result.data.length <= WHATSAPP_LIMIT) {
+                        validate(result);
+                        if (listener != null) {
+                            listener.onProgress(
+                                100,
+                                "Animated WebP passed WhatsApp validation."
+                            );
+                        }
+                        return result;
                     }
-                    return result;
+                    lastError = new IOException(
+                        "Profile output is "
+                            + result.data.length
+                            + " bytes, above 500 KB."
+                    );
+                } catch (IOException error) {
+                    lastError = error;
+                    if (error instanceof NonAnimatedDecodeException) {
+                        throw error;
+                    }
                 }
-                lastError = new IOException(
-                    "Profile output is "
-                        + result.data.length
-                        + " bytes, above 500 KB."
-                );
-            } catch (IOException error) {
-                lastError = error;
-                if (error instanceof NonAnimatedDecodeException) {
-                    throw error;
-                }
+            }
+        } finally {
+            if (cache != null) {
+                cache.close();
             }
         }
         throw new IOException(
@@ -207,23 +293,26 @@ final class VideoStickerRenderer {
         int fps,
         int quality,
         ProgressListener listener,
-        int profileIndex
+        int profileIndex,
+        IOException priorSequentialError
     ) throws IOException {
-        IOException sequentialError = null;
-        try {
-            Result sequential = encodeBySequentialCodec(
-                context,
-                uri,
-                settings,
-                fps,
-                quality,
-                listener,
-                profileIndex
-            );
-            requireMultiFrame(sequential);
-            return sequential;
-        } catch (IOException error) {
-            sequentialError = error;
+        IOException sequentialError = priorSequentialError;
+        if (sequentialError == null) {
+            try {
+                Result sequential = encodeBySequentialCodec(
+                    context,
+                    uri,
+                    settings,
+                    fps,
+                    quality,
+                    listener,
+                    profileIndex
+                );
+                requireMultiFrame(sequential);
+                return sequential;
+            } catch (IOException error) {
+                sequentialError = error;
+            }
         }
 
         IOException indexedError = null;
@@ -281,6 +370,125 @@ final class VideoStickerRenderer {
                 throw combined;
             }
             throw error;
+        }
+    }
+
+    private static FrameCache decodeOnce(
+        Context context,
+        Uri uri,
+        VideoStickerSettings settings,
+        ProgressListener listener,
+        long startedAt
+    ) throws IOException {
+        int frameCount = outputFrameCount(
+            settings,
+            PROFILES[0][0]
+        );
+        ensureCacheCapacity(frameCount);
+        long[] targetTimesUs = FrameTimePlan.sourceTimesUs(
+            settings.startMs,
+            settings.durationMs,
+            frameCount
+        );
+        List<Bitmap> frames = new ArrayList<>(frameCount);
+        try {
+            if (listener != null) {
+                listener.onProgress(
+                    0,
+                    "Decoding the clip once for all quality profiles..."
+                );
+            }
+            SequentialVideoDecoder.decode(
+                context,
+                uri,
+                targetTimesUs,
+                (source, frameIndex) -> {
+                    checkRenderDeadline(startedAt);
+                    frames.add(compose(source, settings));
+                    if (listener != null) {
+                        listener.onProgress(
+                            Math.min(
+                                10,
+                                (frameIndex + 1) * 10 / frameCount
+                            ),
+                            "Decoded frame "
+                                + (frameIndex + 1)
+                                + " of "
+                                + frameCount
+                                + " once."
+                        );
+                    }
+                }
+            );
+            if (frames.size() != frameCount) {
+                throw new IOException(
+                    "Android cached only "
+                        + frames.size()
+                        + " of "
+                        + frameCount
+                        + " required frames."
+                );
+            }
+            return new FrameCache(frames);
+        } catch (IOException | RuntimeException error) {
+            new FrameCache(frames).close();
+            throw error;
+        }
+    }
+
+    private static Result encodeFromCache(
+        FrameCache cache,
+        VideoStickerSettings settings,
+        int fps,
+        int quality,
+        ProgressListener listener,
+        int profileIndex,
+        long startedAt
+    ) throws IOException {
+        int frameCount = outputFrameCount(settings, fps);
+        try (
+            NativeWebpEncoder encoder = new NativeWebpEncoder(
+                SIZE,
+                SIZE,
+                quality
+            )
+        ) {
+            for (int frameIndex = 0; frameIndex < frameCount; frameIndex++) {
+                checkRenderDeadline(startedAt);
+                int sourceIndex = FrameCachePlan.sourceIndex(
+                    cache.frames.size(),
+                    frameCount,
+                    frameIndex
+                );
+                int timestampMs = (int) (
+                    frameIndex * settings.durationMs / frameCount
+                );
+                encoder.addFrame(
+                    cache.frames.get(sourceIndex),
+                    timestampMs
+                );
+                reportCachedFrameProgress(
+                    listener,
+                    profileIndex,
+                    frameIndex,
+                    frameCount
+                );
+            }
+            byte[] data = encoder.finish((int) settings.durationMs);
+            Result result = new Result(
+                data,
+                fps,
+                quality,
+                frameCount,
+                settings.durationMs
+            );
+            requireMultiFrame(result);
+            return result;
+        } catch (RuntimeException error) {
+            throw new IOException(
+                "Cached video encoding failed: " + friendly(error),
+                error
+            );
         }
     }
 
@@ -579,6 +787,74 @@ final class VideoStickerRenderer {
                     + " of "
                     + frameCount
                     + "."
+            );
+        }
+    }
+
+    private static void reportCachedFrameProgress(
+        ProgressListener listener,
+        int profileIndex,
+        int frameIndex,
+        int frameCount
+    ) {
+        if (listener == null) {
+            return;
+        }
+        int profileBase = profileStart(profileIndex, true);
+        int profileEnd = 10
+            + (profileIndex + 1) * 90 / PROFILES.length;
+        int profileRange = Math.max(1, profileEnd - profileBase);
+        listener.onProgress(
+            Math.min(
+                99,
+                profileBase
+                    + (frameIndex + 1) * profileRange / frameCount
+            ),
+            "Encoded cached frame "
+                + (frameIndex + 1)
+                + " of "
+                + frameCount
+                + "."
+        );
+    }
+
+    private static int profileStart(
+        int profileIndex,
+        boolean cached
+    ) {
+        return cached
+            ? 10 + profileIndex * 90 / PROFILES.length
+            : profileIndex * 100 / PROFILES.length;
+    }
+
+    private static void ensureCacheCapacity(int frameCount)
+        throws CacheCapacityException {
+        Runtime runtime = Runtime.getRuntime();
+        long used = runtime.totalMemory() - runtime.freeMemory();
+        long available = Math.max(0L, runtime.maxMemory() - used);
+        long required = (
+            (long) frameCount * SIZE * SIZE * 4L
+        );
+        if (required + CACHE_HEAP_RESERVE > available) {
+            throw new CacheCapacityException(
+                "Not enough free app memory for the single-decode "
+                    + "frame cache."
+            );
+        }
+    }
+
+    private static void checkRenderDeadline(long startedAt)
+        throws IOException {
+        if (Thread.currentThread().isInterrupted()) {
+            throw new IOException("Video conversion was cancelled.");
+        }
+        if (
+            SystemClock.elapsedRealtime() - startedAt
+                > MAX_RENDER_MS
+        ) {
+            throw new IOException(
+                "Video conversion exceeded the five-minute safety "
+                    + "limit on this device."
             );
         }
     }

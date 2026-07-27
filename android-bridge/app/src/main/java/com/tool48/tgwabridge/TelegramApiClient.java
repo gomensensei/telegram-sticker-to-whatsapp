@@ -17,6 +17,10 @@ import java.util.List;
 import javax.net.ssl.HttpsURLConnection;
 
 final class TelegramApiClient {
+    interface DownloadListener {
+        void onProgress(int percent);
+    }
+
     enum Kind {
         STATIC,
         TGS,
@@ -100,7 +104,10 @@ final class TelegramApiClient {
         );
     }
 
-    byte[] download(RemoteSticker sticker)
+    byte[] download(
+        RemoteSticker sticker,
+        DownloadListener listener
+    )
         throws IOException, JSONException {
         JSONObject file = api(
             "getFile?file_id=" + encode(sticker.fileId)
@@ -132,7 +139,9 @@ final class TelegramApiClient {
             }
             return read(
                 connection.getInputStream(),
-                MAX_STICKER_BYTES
+                MAX_STICKER_BYTES,
+                connection.getContentLengthLong(),
+                listener
             );
         } finally {
             connection.disconnect();
@@ -154,7 +163,7 @@ final class TelegramApiClient {
                 : connection.getInputStream();
             byte[] bytes = stream == null
                 ? new byte[0]
-                : read(stream, MAX_JSON_BYTES);
+                : read(stream, MAX_JSON_BYTES, -1L, null);
             JSONObject response = new JSONObject(
                 new String(bytes, StandardCharsets.UTF_8)
             );
@@ -187,12 +196,22 @@ final class TelegramApiClient {
         );
     }
 
-    private static byte[] read(InputStream raw, int maximum)
+    private static byte[] read(
+        InputStream raw,
+        int maximum,
+        long expectedBytes,
+        DownloadListener listener
+    )
         throws IOException {
         try (
             InputStream input = raw;
             ByteArrayOutputStream output = new ByteArrayOutputStream()
         ) {
+            int lastPercent = -1;
+            if (listener != null) {
+                listener.onProgress(0);
+                lastPercent = 0;
+            }
             byte[] buffer = new byte[8192];
             int count;
             while ((count = input.read(buffer)) != -1) {
@@ -202,6 +221,19 @@ final class TelegramApiClient {
                     );
                 }
                 output.write(buffer, 0, count);
+                if (listener != null && expectedBytes > 0) {
+                    int percent = (int) Math.min(
+                        99L,
+                        output.size() * 100L / expectedBytes
+                    );
+                    if (percent > lastPercent) {
+                        listener.onProgress(percent);
+                        lastPercent = percent;
+                    }
+                }
+            }
+            if (listener != null && lastPercent < 100) {
+                listener.onProgress(100);
             }
             return output.toByteArray();
         }

@@ -761,16 +761,20 @@ public final class MainActivity extends Activity {
                         link,
                         token,
                         publisher,
-                        (progress, message) -> mainHandler.post(() -> {
+                        progress -> mainHandler.post(() -> {
+                            String stage =
+                                telegramProgressStage(progress);
                             showTelegramProgress(
-                                progress,
-                                getString(R.string.progress_stage),
-                                progress <= 0
+                                progress.percent,
+                                stage,
+                                progress.stage
+                                    == TelegramPackConverter.Stage.READING_PACK
                             );
                             telegramStatus.setText(
                                 getString(
-                                    R.string.progress_percent,
-                                    progress
+                                    R.string.progress_status_detail,
+                                    stage,
+                                    progress.percent
                                 )
                             );
                         })
@@ -806,6 +810,34 @@ public final class MainActivity extends Activity {
                 });
             }
         });
+    }
+
+    private String telegramProgressStage(
+        TelegramPackConverter.Progress progress
+    ) {
+        switch (progress.stage) {
+            case READING_PACK:
+                return getString(R.string.progress_reading_pack);
+            case DOWNLOADING_STICKER:
+                return getString(
+                    R.string.progress_downloading_sticker,
+                    progress.stickerNumber,
+                    progress.stickerCount,
+                    progress.stickerPercent
+                );
+            case CONVERTING_STICKER:
+                return getString(
+                    R.string.progress_converting_sticker,
+                    progress.stickerNumber,
+                    progress.stickerCount,
+                    progress.stickerPercent
+                );
+            case BUILDING_PACKS:
+                return getString(R.string.progress_building_packs);
+            case COMPLETE:
+            default:
+                return getString(R.string.conversion_ready);
+        }
     }
 
     private void clearTelegramToken() {

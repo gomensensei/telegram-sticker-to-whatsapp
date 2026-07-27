@@ -34,8 +34,11 @@
     <string name="invalid_telegram_link">請貼上有效嘅 t.me/addstickers 貼圖包連結。</string>
     <string name="enter_bot_token">請輸入 Telegram Bot Token。</string>
     <string name="telegram_starting">開始轉換 Telegram 貼圖包…</string>
-    <string name="progress_stage">正在手機下載同轉換…</string>
-    <string name="progress_percent">正在手機轉換… %1$d%%</string>
+    <string name="progress_reading_pack">正在讀取 Telegram 貼圖包資料…</string>
+    <string name="progress_downloading_sticker">第 %1$d/%2$d 張 · 下載中 %3$d%%</string>
+    <string name="progress_converting_sticker">第 %1$d/%2$d 張 · 動圖轉換中 %3$d%%</string>
+    <string name="progress_building_packs">正在驗證同建立 WhatsApp 貼圖包…</string>
+    <string name="progress_status_detail">%1$s · 總進度 %2$d%%</string>
     <string name="progress_value">%1$d%%</string>
     <string name="progress_waiting">•••</string>
     <string name="progress_error_symbol">!</string>

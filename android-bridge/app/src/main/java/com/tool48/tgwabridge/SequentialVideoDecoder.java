@@ -9,6 +9,7 @@ import android.media.MediaCodecInfo;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
 import android.net.Uri;
+import android.os.SystemClock;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -20,6 +21,7 @@ final class SequentialVideoDecoder {
 
     private static final long DEQUEUE_TIMEOUT_US = 10_000L;
     private static final int MAX_IDLE_ROUNDS = 1_000;
+    private static final long MAX_DECODE_MS = 2L * 60L * 1_000L;
 
     private SequentialVideoDecoder() {
     }
@@ -104,7 +106,22 @@ final class SequentialVideoDecoder {
         boolean outputEnded = false;
         int targetIndex = 0;
         int idleRounds = 0;
+        long startedAt = SystemClock.elapsedRealtime();
         while (!outputEnded && targetIndex < targetTimesUs.length) {
+            if (Thread.currentThread().isInterrupted()) {
+                throw new IOException(
+                    "Android video decoding was cancelled."
+                );
+            }
+            if (
+                SystemClock.elapsedRealtime() - startedAt
+                    > MAX_DECODE_MS
+            ) {
+                throw new IOException(
+                    "Android video decoding exceeded the two-minute "
+                        + "safety limit."
+                );
+            }
             boolean advanced = false;
             if (!inputEnded) {
                 int inputIndex = decoder.dequeueInputBuffer(

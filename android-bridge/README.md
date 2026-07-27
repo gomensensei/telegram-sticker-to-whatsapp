@@ -1,6 +1,6 @@
 # TGWA Maker Android
 
-TGWA Maker 2.1.4 is an on-phone Telegram/WhatsApp sticker converter and video
+TGWA Maker 2.1.5 is an on-phone Telegram/WhatsApp sticker converter and video
 sticker maker.
 
 ## Features
@@ -33,6 +33,13 @@ sticker maker.
 - Detects crop-relative and already-cropped plane origins and safely reuses the
   final valid chroma sample when a vendor decoder truncates the last chroma
   row or column of an odd-sized frame.
+- Decodes each WEBM clip once into a guarded composed-frame cache and reuses
+  those frames across quality/FPS attempts. Low-memory devices retain the
+  compatibility path.
+- Reports the current sticker, download progress, animation progress, and
+  whole-pack progress instead of leaving the first sticker at 0%.
+- Uses a balanced libwebp search level plus two-minute decode and five-minute
+  per-sticker safety limits, while keeping the same strict animation checks.
 
 Animated output is accepted only when it contains `ANIM` and at least two
 `ANMF` chunks, is exactly 512 × 512, has frame durations of at least 8 ms,
@@ -59,4 +66,5 @@ letter before running Gradle on Windows. The APK is written to
 `app/build/outputs/apk/debug/app-debug.apk`.
 
 This is an independent implementation based on WhatsApp's documented Android
-sticker provider contract. No StickerVibe source code or assets are included.
+sticker provider contract. No StickerVibe or SigStick source code or assets
+are included.

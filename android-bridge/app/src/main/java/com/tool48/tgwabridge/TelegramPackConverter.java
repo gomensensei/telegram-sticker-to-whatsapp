@@ -15,8 +15,38 @@ import java.util.Locale;
 import java.util.UUID;
 
 final class TelegramPackConverter {
+    enum Stage {
+        READING_PACK,
+        DOWNLOADING_STICKER,
+        CONVERTING_STICKER,
+        BUILDING_PACKS,
+        COMPLETE
+    }
+
+    static final class Progress {
+        final int percent;
+        final Stage stage;
+        final int stickerNumber;
+        final int stickerCount;
+        final int stickerPercent;
+
+        Progress(
+            int percent,
+            Stage stage,
+            int stickerNumber,
+            int stickerCount,
+            int stickerPercent
+        ) {
+            this.percent = percent;
+            this.stage = stage;
+            this.stickerNumber = stickerNumber;
+            this.stickerCount = stickerCount;
+            this.stickerPercent = stickerPercent;
+        }
+    }
+
     interface ProgressListener {
-        void onProgress(int percent, String message);
+        void onProgress(Progress progress);
     }
 
     static final class Result {
@@ -50,7 +80,14 @@ final class TelegramPackConverter {
     ) throws IOException, JSONException {
         String shortName = TelegramPackLink.shortName(link);
         TelegramApiClient client = new TelegramApiClient(token);
-        update(listener, 0, "Reading Telegram sticker pack...");
+        update(
+            listener,
+            1,
+            Stage.READING_PACK,
+            0,
+            0,
+            0
+        );
         TelegramApiClient.StickerSet set =
             client.getStickerSet(shortName);
         if (set.stickers.size() > 200) {
@@ -92,36 +129,58 @@ final class TelegramPackConverter {
                 }
                 TelegramApiClient.RemoteSticker sticker =
                     set.stickers.get(index);
-                int base = index * 90 / total;
                 update(
                     listener,
-                    base,
-                    "Downloading sticker "
-                        + (index + 1)
-                        + " of "
-                        + total
-                        + "..."
+                    ConversionProgress.sticker(index, total, 0),
+                    Stage.DOWNLOADING_STICKER,
+                    index + 1,
+                    total,
+                    0
                 );
-                byte[] source = client.download(sticker);
+                final int stickerIndex = index;
+                byte[] source = client.download(
+                    sticker,
+                    downloadPercent -> {
+                        int itemPercent = downloadPercent * 15 / 100;
+                        update(
+                            listener,
+                            ConversionProgress.sticker(
+                                stickerIndex,
+                                total,
+                                itemPercent
+                            ),
+                            Stage.DOWNLOADING_STICKER,
+                            stickerIndex + 1,
+                            total,
+                            downloadPercent
+                        );
+                    }
+                );
+                update(
+                    listener,
+                    ConversionProgress.sticker(index, total, 15),
+                    Stage.CONVERTING_STICKER,
+                    index + 1,
+                    total,
+                    0
+                );
                 byte[] output;
                 if (sticker.kind == TelegramApiClient.Kind.STATIC) {
                     output = StaticStickerRenderer.render(source);
                 } else if (sticker.kind == TelegramApiClient.Kind.TGS) {
-                    final int stickerIndex = index;
                     output = TgsStickerRenderer.render(
                         source,
                         (progress, message) -> update(
                             listener,
-                            (
-                                stickerIndex * 90
-                                    + progress * 90 / 100
-                            ) / total,
-                            "Sticker "
-                                + (stickerIndex + 1)
-                                + "/"
-                                + total
-                                + ": "
-                                + message
+                            ConversionProgress.sticker(
+                                stickerIndex,
+                                total,
+                                15 + progress * 85 / 100
+                            ),
+                            Stage.CONVERTING_STICKER,
+                            stickerIndex + 1,
+                            total,
+                            progress
                         )
                     );
                 } else {
@@ -151,26 +210,32 @@ final class TelegramPackConverter {
                             0f,
                             VideoStickerSettings.Background.TRANSPARENT
                         );
-                    final int stickerIndex = index;
                     output = VideoStickerRenderer.render(
                         context,
                         uri,
                         settings,
                         (progress, message) -> update(
                             listener,
-                            (
-                                stickerIndex * 90
-                                    + progress * 90 / 100
-                            ) / total,
-                            "Sticker "
-                                + (stickerIndex + 1)
-                                + "/"
-                                + total
-                                + ": "
-                                + message
+                            ConversionProgress.sticker(
+                                stickerIndex,
+                                total,
+                                15 + progress * 85 / 100
+                            ),
+                            Stage.CONVERTING_STICKER,
+                            stickerIndex + 1,
+                            total,
+                            progress
                         )
                     ).data;
                 }
+                update(
+                    listener,
+                    ConversionProgress.sticker(index, total, 100),
+                    Stage.CONVERTING_STICKER,
+                    index + 1,
+                    total,
+                    100
+                );
                 File rendered = new File(
                     work,
                     String.format(
@@ -196,8 +261,11 @@ final class TelegramPackConverter {
             }
             update(
                 listener,
-                92,
-                "Separating static and animated packs..."
+                93,
+                Stage.BUILDING_PACKS,
+                0,
+                0,
+                0
             );
             List<Pack> packs = GeneratedPackBuilder.buildSplit(
                 context,
@@ -209,7 +277,10 @@ final class TelegramPackConverter {
             update(
                 listener,
                 100,
-                "Telegram pack converted and validated."
+                Stage.COMPLETE,
+                0,
+                0,
+                100
             );
             return new Result(
                 set,
@@ -263,12 +334,20 @@ final class TelegramPackConverter {
     private static void update(
         ProgressListener listener,
         int percent,
-        String message
+        Stage stage,
+        int stickerNumber,
+        int stickerCount,
+        int stickerPercent
     ) {
         if (listener != null) {
             listener.onProgress(
-                Math.max(0, Math.min(100, percent)),
-                message
+                new Progress(
+                    Math.max(0, Math.min(100, percent)),
+                    stage,
+                    stickerNumber,
+                    stickerCount,
+                    Math.max(0, Math.min(100, stickerPercent))
+                )
             );
         }
     }

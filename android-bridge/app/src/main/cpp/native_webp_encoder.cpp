@@ -87,7 +87,9 @@ Java_com_tool48_tgwabridge_NativeWebpEncoder_nativeCreate(
     }
     handle->config.lossless = 0;
     handle->config.quality = quality;
-    handle->config.method = 6;
+    // Method 4 keeps high visual quality while avoiding the very expensive
+    // exhaustive search used by method 6 on mid-range Android phones.
+    handle->config.method = 4;
     handle->config.alpha_quality = 100;
     handle->config.thread_level = 1;
     handle->config.exact = 1;
