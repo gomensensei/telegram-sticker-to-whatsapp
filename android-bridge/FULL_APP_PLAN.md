@@ -38,6 +38,15 @@
 - regression coverage for 61-frame single-keyframe Telegram WEBM sampling
 - explicit non-animation decode errors instead of a misleading 500 KB error
 
+## Completed in 2.1.3
+
+- sequential Telegram WEBM packet decoding with MediaExtractor and MediaCodec
+- raw decoded-frame access without timestamp or frame-index seeking
+- presentation-timestamp sampling for full clips and trimmed ranges
+- flexible YUV plane conversion with crop, row-stride, and pixel-stride support
+- frame-index and timestamp compatibility fallbacks retained
+- explicit sequential-decoder diagnostics when every device path fails
+
 ## Non-negotiable output contract
 
 The app never exposes an animated pack to WhatsApp unless every sticker:

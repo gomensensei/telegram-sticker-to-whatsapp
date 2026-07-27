@@ -120,7 +120,7 @@ WhatsApp 官方格式重點（貼圖包模式）：
 但不能用 Android `Bitmap.compress()` 將影片逐格「另存 WebP」代替真正動畫
 編碼；該路徑只會產生單幀 WebP，加入 WhatsApp 後就會變定格。
 
-`TGWA Maker 2.1.2` 已在 APK 內完成：
+`TGWA Maker 2.1.3` 已在 APK 內完成：
 
 - 貼上 Telegram sticker pack 連結後，直接以 Bot API 下載整包。
 - 靜態 WebP／PNG、TGS 及 WEBM 分別解碼；TGS 由 Lottie 渲染，影片及 WEBM
@@ -135,8 +135,9 @@ WhatsApp 官方格式重點（貼圖包模式）：
 - Token 可直接貼上、顯示／隱藏、忘記及開啟 BotFather，但唔會硬編碼入 APK。
 - 撳一鍵轉換後即時顯示階段文字、百分比同粗進度條。
 - 轉換完成會自動開啟 WhatsApp 加入畫面；多 Part 會喺每次確認後接住開下一包。
-- Android 9+ 會按 frame index 分批解碼 Telegram VP9 WEBM，避免部分手機用時間
-  抽格時不停取得同一個 keyframe，令動畫被壓成單格。
+- 先用 `MediaExtractor + MediaCodec` 由檔案開頭順序解碼 Telegram VP9 WEBM，
+  再按實際 presentation timestamp 取格；毋須依賴部分手機會失效的時間／索引
+  seek。系統順序解碼不可用時，仍保留原有兩條抽格路徑作後備。
 
 每個動態輸出都要通過 `ANIM + 最少 2 個 ANMF`、每格 8 ms、最長 10 秒、
 512 × 512 及 500 KB 等檢查，才會出現在 **Add to WhatsApp** 清單。通過後的

@@ -209,6 +209,23 @@ final class VideoStickerRenderer {
         ProgressListener listener,
         int profileIndex
     ) throws IOException {
+        IOException sequentialError = null;
+        try {
+            Result sequential = encodeBySequentialCodec(
+                context,
+                uri,
+                settings,
+                fps,
+                quality,
+                listener,
+                profileIndex
+            );
+            requireMultiFrame(sequential);
+            return sequential;
+        } catch (IOException error) {
+            sequentialError = error;
+        }
+
         IOException indexedError = null;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             try {
@@ -225,6 +242,9 @@ final class VideoStickerRenderer {
                 return indexed;
             } catch (IOException error) {
                 indexedError = error;
+                if (sequentialError != null) {
+                    error.addSuppressed(sequentialError);
+                }
             }
         }
         try {
@@ -240,10 +260,85 @@ final class VideoStickerRenderer {
             requireMultiFrame(timed);
             return timed;
         } catch (IOException error) {
+            if (sequentialError != null) {
+                error.addSuppressed(sequentialError);
+            }
             if (indexedError != null) {
                 error.addSuppressed(indexedError);
             }
+            if (
+                error instanceof NonAnimatedDecodeException
+                && sequentialError != null
+            ) {
+                NonAnimatedDecodeException combined =
+                    new NonAnimatedDecodeException(
+                        "Android sequential WEBM decoding failed: "
+                            + friendly(sequentialError)
+                            + " The device fallbacks also exposed only "
+                            + "one video frame."
+                    );
+                combined.addSuppressed(error);
+                throw combined;
+            }
             throw error;
+        }
+    }
+
+    private static Result encodeBySequentialCodec(
+        Context context,
+        Uri uri,
+        VideoStickerSettings settings,
+        int fps,
+        int quality,
+        ProgressListener listener,
+        int profileIndex
+    ) throws IOException {
+        int frameCount = outputFrameCount(settings, fps);
+        long[] targetTimesUs = FrameTimePlan.sourceTimesUs(
+            settings.startMs,
+            settings.durationMs,
+            frameCount
+        );
+        try (
+            NativeWebpEncoder encoder = new NativeWebpEncoder(
+                SIZE,
+                SIZE,
+                quality
+            )
+        ) {
+            SequentialVideoDecoder.decode(
+                context,
+                uri,
+                targetTimesUs,
+                (source, frameIndex) -> addOutputFrame(
+                    encoder,
+                    source,
+                    settings,
+                    frameIndex,
+                    frameCount,
+                    listener,
+                    profileIndex
+                )
+            );
+            byte[] data = encoder.finish((int) settings.durationMs);
+            return new Result(
+                data,
+                fps,
+                quality,
+                frameCount,
+                settings.durationMs
+            );
+        } catch (IllegalArgumentException error) {
+            throw new IOException(
+                "Android cannot calculate sequential frame times: "
+                    + friendly(error),
+                error
+            );
+        } catch (RuntimeException error) {
+            throw new IOException(
+                "Sequential video encoding failed: " + friendly(error),
+                error
+            );
         }
     }
 
