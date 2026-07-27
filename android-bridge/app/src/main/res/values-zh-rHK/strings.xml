@@ -34,7 +34,12 @@
     <string name="invalid_telegram_link">請貼上有效嘅 t.me/addstickers 貼圖包連結。</string>
     <string name="enter_bot_token">請輸入 Telegram Bot Token。</string>
     <string name="telegram_starting">開始轉換 Telegram 貼圖包…</string>
+    <string name="progress_stage">正在手機下載同轉換…</string>
     <string name="progress_percent">正在手機轉換… %1$d%%</string>
+    <string name="progress_value">%1$d%%</string>
+    <string name="progress_waiting">•••</string>
+    <string name="progress_error_symbol">!</string>
+    <string name="conversion_ready">轉換完成 · 準備開啟 WhatsApp</string>
     <string name="telegram_done">已轉換 %1$s：%2$d 張普通圖＋%3$d 張動圖，共 %4$d 個 WhatsApp 貼圖包。</string>
     <string name="telegram_failed">Telegram 轉換失敗：%1$s</string>
     <string name="token_removed">已從手機移除保存嘅 Telegram Bot Token。</string>
@@ -112,6 +117,14 @@
     <string name="whatsapp_rejected">WhatsApp 拒絕呢個貼圖包：%1$s</string>
     <string name="whatsapp_added">貼圖包已加入 WhatsApp。</string>
     <string name="whatsapp_not_added">WhatsApp 未有加入貼圖包，貼圖檔案冇被更改。</string>
+    <string name="whatsapp_name">WhatsApp</string>
+    <string name="whatsapp_business_name">WhatsApp Business</string>
+    <string name="whatsapp_auto_opening">正在開啟 %1$s · %2$s（%3$d/%4$d）</string>
+    <string name="whatsapp_auto_confirm">請喺 %1$s 確認「加入」；下一個 Part 會自動接住開。</string>
+    <string name="whatsapp_auto_complete">共 %1$d 個已轉換貼圖包全部加入咗 %2$s。</string>
+    <string name="whatsapp_auto_stopped">自動加入停咗喺 %1$s；你可以喺「可以加入 WhatsApp 嘅貼圖包」再試。</string>
+    <string name="whatsapp_auto_unavailable">轉換已完成，但手機未安裝 WhatsApp。安裝後可喺已儲存貼圖包清單按「加入」。</string>
+    <string name="whatsapp_auto_resume">等待 WhatsApp 確認加入…</string>
 
     <string name="handles_eyebrow">支援格式</string>
     <string name="handles_title">格式唔使理，交俾工具處理。</string>

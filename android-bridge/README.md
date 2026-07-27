@@ -1,6 +1,6 @@
 # TGWA Maker Android
 
-TGWA Maker 2.1 is an on-phone Telegram/WhatsApp sticker converter and video
+TGWA Maker 2.1.1 is an on-phone Telegram/WhatsApp sticker converter and video
 sticker maker.
 
 ## Features
@@ -23,6 +23,9 @@ sticker maker.
   keeps the current form and selected video when the language changes.
 - Provides paste, show/hide, saved-state, forget, and BotFather shortcuts for
   the on-device Token flow without embedding a Token in the APK.
+- Shows a prominent staged progress card as soon as conversion starts.
+- Opens WhatsApp automatically when conversion completes and continues through
+  every generated Part after each official WhatsApp confirmation.
 
 Animated output is accepted only when it contains `ANIM` and at least two
 `ANMF` chunks, is exactly 512 × 512, has frame durations of at least 8 ms,

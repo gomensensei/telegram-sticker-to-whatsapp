@@ -23,6 +23,13 @@
 - secure Token paste, reveal/hide, saved status, forget, and BotFather actions
 - state preservation across language changes
 
+## Completed in 2.1.1
+
+- prominent staged Telegram conversion progress card
+- immediate visual error feedback for missing or invalid inputs
+- automatic WhatsApp handoff after conversion
+- sequential multi-Part WhatsApp handoff after each official confirmation
+
 ## Non-negotiable output contract
 
 The app never exposes an animated pack to WhatsApp unless every sticker:

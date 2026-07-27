@@ -183,7 +183,7 @@ final class TelegramApiClient {
         );
         connection.setRequestProperty(
             "User-Agent",
-            "TGWA-Maker-Android/2.0"
+            "TGWA-Maker-Android/" + BuildConfig.VERSION_NAME
         );
     }
 

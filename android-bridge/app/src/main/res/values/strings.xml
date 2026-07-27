@@ -34,7 +34,12 @@
     <string name="invalid_telegram_link">Paste a valid t.me/addstickers sticker-pack link.</string>
     <string name="enter_bot_token">Enter a Telegram Bot Token.</string>
     <string name="telegram_starting">Starting Telegram conversion…</string>
+    <string name="progress_stage">Downloading and converting on this phone…</string>
     <string name="progress_percent">Converting on this phone… %1$d%%</string>
+    <string name="progress_value">%1$d%%</string>
+    <string name="progress_waiting">•••</string>
+    <string name="progress_error_symbol">!</string>
+    <string name="conversion_ready">Conversion complete · preparing WhatsApp</string>
     <string name="telegram_done">Converted %1$s: %2$d static + %3$d animated stickers into %4$d WhatsApp pack(s).</string>
     <string name="telegram_failed">Telegram conversion failed: %1$s</string>
     <string name="token_removed">Saved Telegram Bot Token removed from this phone.</string>
@@ -112,6 +117,14 @@
     <string name="whatsapp_rejected">WhatsApp rejected this pack: %1$s</string>
     <string name="whatsapp_added">Sticker pack added to WhatsApp.</string>
     <string name="whatsapp_not_added">WhatsApp did not add the pack. No sticker files were changed.</string>
+    <string name="whatsapp_name">WhatsApp</string>
+    <string name="whatsapp_business_name">WhatsApp Business</string>
+    <string name="whatsapp_auto_opening">Opening %1$s · %2$s (%3$d/%4$d)</string>
+    <string name="whatsapp_auto_confirm">Confirm “Add” in %1$s. The next Part will open automatically.</string>
+    <string name="whatsapp_auto_complete">All %1$d converted pack(s) were added to %2$s.</string>
+    <string name="whatsapp_auto_stopped">Automatic add stopped at %1$s. You can retry it from “Packs ready for WhatsApp”.</string>
+    <string name="whatsapp_auto_unavailable">Conversion finished, but WhatsApp is not installed. Install it, then use the Add button in the saved-pack list.</string>
+    <string name="whatsapp_auto_resume">Waiting for WhatsApp confirmation…</string>
 
     <string name="handles_eyebrow">WHAT IT HANDLES</string>
     <string name="handles_title">Formats are handled for you.</string>

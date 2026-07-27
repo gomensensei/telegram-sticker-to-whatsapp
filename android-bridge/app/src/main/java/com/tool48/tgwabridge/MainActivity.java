@@ -36,6 +36,7 @@ import android.widget.Toast;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -65,6 +66,15 @@ public final class MainActivity extends Activity {
     private static final String STATE_MAKER_PUBLISHER =
         "state_maker_publisher";
     private static final String STATE_SELECTED_TAB = "state_selected_tab";
+    private static final String STATE_AUTO_ADD_IDS = "state_auto_add_ids";
+    private static final String STATE_AUTO_ADD_ACTIVE =
+        "state_auto_add_active";
+    private static final String STATE_AUTO_ADD_TOTAL =
+        "state_auto_add_total";
+    private static final String STATE_AUTO_ADD_COMPLETED =
+        "state_auto_add_completed";
+    private static final String STATE_AUTO_ADD_TARGET =
+        "state_auto_add_target";
 
     private final ExecutorService executor =
         Executors.newSingleThreadExecutor();
@@ -77,6 +87,7 @@ public final class MainActivity extends Activity {
     private Button tokenVisibilityButton;
     private Button telegramTabButton;
     private Button videoTabButton;
+    private Button languageButton;
     private Button chooseVideoButton;
     private Button renderVideoButton;
     private Button buildMakerPackButton;
@@ -103,6 +114,9 @@ public final class MainActivity extends Activity {
     private ProgressBar telegramProgress;
     private TextView telegramStatus;
     private TextView tokenSavedStatus;
+    private TextView telegramProgressStage;
+    private TextView telegramProgressValue;
+    private LinearLayout telegramProgressPanel;
     private LinearLayout telegramPanel;
     private LinearLayout makerPanel;
     private Uri selectedVideoUri;
@@ -110,6 +124,12 @@ public final class MainActivity extends Activity {
     private int previewGeneration;
     private int selectedTab;
     private boolean tokenVisible;
+    private final ArrayList<String> pendingAutoAddPackIds =
+        new ArrayList<>();
+    private boolean autoAddingPacks;
+    private int autoAddTotal;
+    private int autoAddCompleted;
+    private String autoAddTargetPackage = WHATSAPP;
 
     @Override
     protected void attachBaseContext(Context newBase) {
@@ -146,6 +166,14 @@ public final class MainActivity extends Activity {
             valueOf(makerPackPublisher)
         );
         outState.putInt(STATE_SELECTED_TAB, selectedTab);
+        outState.putStringArrayList(
+            STATE_AUTO_ADD_IDS,
+            new ArrayList<>(pendingAutoAddPackIds)
+        );
+        outState.putBoolean(STATE_AUTO_ADD_ACTIVE, autoAddingPacks);
+        outState.putInt(STATE_AUTO_ADD_TOTAL, autoAddTotal);
+        outState.putInt(STATE_AUTO_ADD_COMPLETED, autoAddCompleted);
+        outState.putString(STATE_AUTO_ADD_TARGET, autoAddTargetPackage);
     }
 
     @Override
@@ -185,17 +213,24 @@ public final class MainActivity extends Activity {
             String validationError = data == null
                 ? ""
                 : data.getStringExtra("validation_error");
+            if (autoAddingPacks) {
+                handleAutomaticAddResult(
+                    resultCode,
+                    validationError == null ? "" : validationError.trim()
+                );
+                return;
+            }
             if (validationError != null && !validationError.trim().isEmpty()) {
-                status.setText(
+                setPackStatus(
                     getString(
                         R.string.whatsapp_rejected,
                         validationError.trim()
                     )
                 );
             } else if (resultCode == RESULT_OK) {
-                status.setText(R.string.whatsapp_added);
+                setPackStatus(getString(R.string.whatsapp_added));
             } else {
-                status.setText(R.string.whatsapp_not_added);
+                setPackStatus(getString(R.string.whatsapp_not_added));
             }
             refreshPacks();
             return;
@@ -265,12 +300,12 @@ public final class MainActivity extends Activity {
             )
         );
 
-        Button language = addButton(
+        languageButton = addButton(
             getString(R.string.language_toggle),
             view -> AppLocale.toggle(this)
         );
-        styleChip(language);
-        topBar.addView(language);
+        styleChip(languageButton);
+        topBar.addView(languageButton);
         root.addView(topBar, matchWrap());
 
         TextView localOnly = text(
@@ -605,17 +640,65 @@ public final class MainActivity extends Activity {
         convertDetailParams.topMargin = dp(5);
         root.addView(convertDetail, convertDetailParams);
 
+        telegramProgressPanel = new LinearLayout(this);
+        telegramProgressPanel.setOrientation(LinearLayout.VERTICAL);
+        telegramProgressPanel.setPadding(
+            dp(13),
+            dp(12),
+            dp(13),
+            dp(12)
+        );
+        telegramProgressPanel.setBackground(
+            rounded(SURFACE_2, 14, LINE)
+        );
+        telegramProgressPanel.setVisibility(View.GONE);
+
+        LinearLayout progressHeading = new LinearLayout(this);
+        progressHeading.setOrientation(LinearLayout.HORIZONTAL);
+        progressHeading.setGravity(Gravity.CENTER_VERTICAL);
+        telegramProgressStage = text(
+            getString(R.string.telegram_starting),
+            13,
+            TEXT
+        );
+        telegramProgressStage.setTypeface(Typeface.DEFAULT_BOLD);
+        progressHeading.addView(
+            telegramProgressStage,
+            new LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f
+            )
+        );
+        telegramProgressValue = text(
+            getString(R.string.progress_value, 0),
+            13,
+            MINT
+        );
+        telegramProgressValue.setTypeface(Typeface.DEFAULT_BOLD);
+        progressHeading.addView(telegramProgressValue, wrapWrap());
+        telegramProgressPanel.addView(progressHeading, matchWrap());
+
         telegramProgress = new ProgressBar(
             this,
             null,
             android.R.attr.progressBarStyleHorizontal
         );
         telegramProgress.setMax(100);
-        telegramProgress.setVisibility(View.GONE);
         styleProgress(telegramProgress);
-        LinearLayout.LayoutParams telegramProgressParams = matchWrap();
+        LinearLayout.LayoutParams telegramProgressParams =
+            new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(10)
+            );
         telegramProgressParams.topMargin = dp(10);
-        root.addView(telegramProgress, telegramProgressParams);
+        telegramProgressPanel.addView(
+            telegramProgress,
+            telegramProgressParams
+        );
+        LinearLayout.LayoutParams progressPanelParams = matchWrap();
+        progressPanelParams.topMargin = dp(12);
+        root.addView(telegramProgressPanel, progressPanelParams);
 
         telegramStatus = text(
             getString(R.string.telegram_initial_status),
@@ -643,10 +726,16 @@ public final class MainActivity extends Activity {
             TelegramPackLink.shortName(link);
         } catch (IOException error) {
             telegramStatus.setText(R.string.invalid_telegram_link);
+            showTelegramProgressError(
+                getString(R.string.invalid_telegram_link)
+            );
             return;
         }
         if (token.isEmpty()) {
             telegramStatus.setText(R.string.enter_bot_token);
+            showTelegramProgressError(
+                getString(R.string.enter_bot_token)
+            );
             return;
         }
         try {
@@ -654,11 +743,16 @@ public final class MainActivity extends Activity {
             updateTokenSavedState(true);
         } catch (IOException error) {
             telegramStatus.setText(friendly(error));
+            showTelegramProgressError(friendly(error));
             return;
         }
         setTelegramBusy(true);
-        telegramProgress.setProgress(0);
         telegramStatus.setText(R.string.telegram_starting);
+        showTelegramProgress(
+            0,
+            getString(R.string.telegram_starting),
+            true
+        );
         executor.execute(() -> {
             try {
                 TelegramPackConverter.Result result =
@@ -668,7 +762,11 @@ public final class MainActivity extends Activity {
                         token,
                         publisher,
                         (progress, message) -> mainHandler.post(() -> {
-                            telegramProgress.setProgress(progress);
+                            showTelegramProgress(
+                                progress,
+                                getString(R.string.progress_stage),
+                                progress <= 0
+                            );
                             telegramStatus.setText(
                                 getString(
                                     R.string.progress_percent,
@@ -679,6 +777,11 @@ public final class MainActivity extends Activity {
                     );
                 mainHandler.post(() -> {
                     setTelegramBusy(false);
+                    showTelegramProgress(
+                        100,
+                        getString(R.string.conversion_ready),
+                        false
+                    );
                     telegramStatus.setText(
                         getString(
                             R.string.telegram_done,
@@ -689,16 +792,17 @@ public final class MainActivity extends Activity {
                         )
                     );
                     refreshPacks();
+                    beginAutomaticWhatsAppAdd(result.packs);
                 });
             } catch (Exception error) {
                 mainHandler.post(() -> {
                     setTelegramBusy(false);
-                    telegramStatus.setText(
-                        getString(
-                            R.string.telegram_failed,
-                            friendly(error)
-                        )
+                    String failure = getString(
+                        R.string.telegram_failed,
+                        friendly(error)
                     );
+                    telegramStatus.setText(failure);
+                    showTelegramProgressError(failure);
                 });
             }
         });
@@ -718,8 +822,213 @@ public final class MainActivity extends Activity {
         telegramConvertButton.setEnabled(!busy);
         clearBotTokenButton.setEnabled(!busy);
         tokenVisibilityButton.setEnabled(!busy);
+        languageButton.setEnabled(!busy);
+        languageButton.setAlpha(busy ? 0.45f : 1f);
         telegramConvertButton.setAlpha(busy ? 0.45f : 1f);
-        telegramProgress.setVisibility(busy ? View.VISIBLE : View.GONE);
+        if (busy) {
+            telegramProgressPanel.setVisibility(View.VISIBLE);
+        }
+    }
+
+    private void showTelegramProgress(
+        int percent,
+        String stage,
+        boolean indeterminate
+    ) {
+        int safePercent = Math.max(0, Math.min(100, percent));
+        telegramProgressPanel.setVisibility(View.VISIBLE);
+        telegramProgressStage.setText(stage);
+        telegramProgressStage.setTextColor(TEXT);
+        telegramProgressValue.setText(
+            indeterminate
+                ? getString(R.string.progress_waiting)
+                : getString(R.string.progress_value, safePercent)
+        );
+        telegramProgressValue.setTextColor(MINT);
+        telegramProgress.setIndeterminateTintList(
+            ColorStateList.valueOf(MINT)
+        );
+        telegramProgress.setProgressTintList(
+            ColorStateList.valueOf(MINT)
+        );
+        telegramProgress.setIndeterminate(indeterminate);
+        if (!indeterminate) {
+            telegramProgress.setProgress(safePercent, true);
+        }
+    }
+
+    private void showTelegramProgressError(String message) {
+        telegramProgressPanel.setVisibility(View.VISIBLE);
+        telegramProgress.setIndeterminate(false);
+        telegramProgress.setProgress(0);
+        telegramProgress.setProgressTintList(
+            ColorStateList.valueOf(DANGER)
+        );
+        telegramProgressStage.setText(message);
+        telegramProgressStage.setTextColor(DANGER);
+        telegramProgressValue.setText(R.string.progress_error_symbol);
+        telegramProgressValue.setTextColor(DANGER);
+    }
+
+    private void beginAutomaticWhatsAppAdd(List<Pack> packs) {
+        if (packs == null || packs.isEmpty()) {
+            return;
+        }
+        if (isInstalled(WHATSAPP)) {
+            autoAddTargetPackage = WHATSAPP;
+        } else if (isInstalled(WHATSAPP_BUSINESS)) {
+            autoAddTargetPackage = WHATSAPP_BUSINESS;
+        } else {
+            autoAddingPacks = false;
+            pendingAutoAddPackIds.clear();
+            String unavailable = getString(
+                R.string.whatsapp_auto_unavailable
+            );
+            showTelegramProgress(100, unavailable, false);
+            setPackStatus(unavailable);
+            return;
+        }
+        pendingAutoAddPackIds.clear();
+        for (Pack pack : packs) {
+            pendingAutoAddPackIds.add(pack.identifier);
+        }
+        autoAddTotal = pendingAutoAddPackIds.size();
+        autoAddCompleted = 0;
+        autoAddingPacks = true;
+        launchNextAutomaticPack();
+    }
+
+    private void launchNextAutomaticPack() {
+        Pack pack = currentAutomaticPack();
+        while (pack == null && !pendingAutoAddPackIds.isEmpty()) {
+            pendingAutoAddPackIds.remove(0);
+            pack = currentAutomaticPack();
+        }
+        if (pack == null) {
+            finishAutomaticAdd();
+            return;
+        }
+        String target = automaticTargetName();
+        int current = autoAddCompleted + 1;
+        String opening = getString(
+            R.string.whatsapp_auto_opening,
+            target,
+            pack.name,
+            current,
+            autoAddTotal
+        );
+        showTelegramProgress(100, opening, false);
+        telegramStatus.setText(
+            getString(R.string.whatsapp_auto_confirm, target)
+        );
+        if (!enablePack(pack, autoAddTargetPackage)) {
+            stopAutomaticAdd(
+                getString(R.string.whatsapp_open_failed),
+                pack
+            );
+        }
+    }
+
+    private void handleAutomaticAddResult(
+        int resultCode,
+        String validationError
+    ) {
+        Pack pack = currentAutomaticPack();
+        if (pack == null) {
+            finishAutomaticAdd();
+            return;
+        }
+        if (!validationError.isEmpty()) {
+            stopAutomaticAdd(
+                getString(
+                    R.string.whatsapp_rejected,
+                    validationError
+                ),
+                pack
+            );
+            return;
+        }
+        boolean whitelisted = WhitelistCheck.isWhitelisted(
+            this,
+            pack,
+            autoAddTargetPackage
+        );
+        if (resultCode != RESULT_OK && !whitelisted) {
+            stopAutomaticAdd(
+                getString(
+                    R.string.whatsapp_auto_stopped,
+                    pack.name
+                ),
+                pack
+            );
+            return;
+        }
+        pendingAutoAddPackIds.remove(0);
+        autoAddCompleted++;
+        refreshPacks();
+        if (pendingAutoAddPackIds.isEmpty()) {
+            finishAutomaticAdd();
+        } else {
+            mainHandler.postDelayed(
+                this::launchNextAutomaticPack,
+                350
+            );
+        }
+    }
+
+    private void finishAutomaticAdd() {
+        autoAddingPacks = false;
+        pendingAutoAddPackIds.clear();
+        String complete = getString(
+            R.string.whatsapp_auto_complete,
+            autoAddCompleted,
+            automaticTargetName()
+        );
+        showTelegramProgress(100, complete, false);
+        setPackStatus(complete);
+        refreshPacks();
+    }
+
+    private void stopAutomaticAdd(String message, Pack pack) {
+        autoAddingPacks = false;
+        pendingAutoAddPackIds.clear();
+        String value = message;
+        if (
+            value == null
+            || value.trim().isEmpty()
+        ) {
+            value = getString(
+                R.string.whatsapp_auto_stopped,
+                pack == null ? "" : pack.name
+            );
+        }
+        showTelegramProgress(100, value, false);
+        setPackStatus(value);
+        refreshPacks();
+    }
+
+    private Pack currentAutomaticPack() {
+        if (pendingAutoAddPackIds.isEmpty()) {
+            return null;
+        }
+        return PackStore.find(this, pendingAutoAddPackIds.get(0));
+    }
+
+    private String automaticTargetName() {
+        return getString(
+            WHATSAPP_BUSINESS.equals(autoAddTargetPackage)
+                ? R.string.whatsapp_business_name
+                : R.string.whatsapp_name
+        );
+    }
+
+    private void setPackStatus(String value) {
+        if (status != null) {
+            status.setText(value);
+        }
+        if (telegramStatus != null) {
+            telegramStatus.setText(value);
+        }
     }
 
     private void buildMakerInterface(LinearLayout root) {
@@ -1795,6 +2104,36 @@ public final class MainActivity extends Activity {
             )
         );
         showTab(state.getInt(STATE_SELECTED_TAB, 0));
+        pendingAutoAddPackIds.clear();
+        ArrayList<String> restoredPackIds =
+            state.getStringArrayList(STATE_AUTO_ADD_IDS);
+        if (restoredPackIds != null) {
+            pendingAutoAddPackIds.addAll(restoredPackIds);
+        }
+        autoAddingPacks = state.getBoolean(
+            STATE_AUTO_ADD_ACTIVE,
+            false
+        );
+        autoAddTotal = state.getInt(STATE_AUTO_ADD_TOTAL, 0);
+        autoAddCompleted = state.getInt(
+            STATE_AUTO_ADD_COMPLETED,
+            0
+        );
+        String restoredTarget = state.getString(
+            STATE_AUTO_ADD_TARGET,
+            WHATSAPP
+        );
+        autoAddTargetPackage = WHATSAPP_BUSINESS.equals(restoredTarget)
+            ? WHATSAPP_BUSINESS
+            : WHATSAPP;
+        if (autoAddingPacks && !pendingAutoAddPackIds.isEmpty()) {
+            showTelegramProgress(
+                100,
+                getString(R.string.whatsapp_auto_resume),
+                false
+            );
+            telegramStatus.setText(R.string.whatsapp_auto_resume);
+        }
         String video = state.getString(STATE_VIDEO, "");
         if (!video.isEmpty()) {
             selectedVideoUri = Uri.parse(video);
@@ -1985,7 +2324,7 @@ public final class MainActivity extends Activity {
         return value;
     }
 
-    private void enablePack(Pack pack, String targetPackage) {
+    private boolean enablePack(Pack pack, String targetPackage) {
         Intent intent = new Intent(
             "com.whatsapp.intent.action.ENABLE_STICKER_PACK"
         );
@@ -1998,12 +2337,14 @@ public final class MainActivity extends Activity {
         intent.putExtra("sticker_pack_name", pack.name);
         try {
             startActivityForResult(intent, ENABLE_PACK);
+            return true;
         } catch (ActivityNotFoundException error) {
             Toast.makeText(
                 this,
                 getString(R.string.whatsapp_open_failed),
                 Toast.LENGTH_LONG
             ).show();
+            return false;
         }
     }
 
