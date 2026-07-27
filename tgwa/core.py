@@ -926,6 +926,86 @@ def inspect_video_sticker(path: Path, platform: str) -> dict[str, Any]:
     }
 
 
+def inspect_webp_animation_bytes(data: bytes) -> dict[str, Any]:
+    if (
+        len(data) < 20
+        or data[:4] != b"RIFF"
+        or data[8:12] != b"WEBP"
+    ):
+        return {
+            "has_animation": False,
+            "animated": False,
+            "frame_count": 0,
+            "duration_ms": 0,
+            "minimum_frame_duration_ms": 0,
+            "error": "不是有效的 WebP 檔案。",
+        }
+    animation_header = False
+    frame_count = 0
+    duration_ms = 0
+    minimum_duration: int | None = None
+    malformed = False
+    offset = 12
+    while offset + 8 <= len(data):
+        chunk_type = data[offset : offset + 4]
+        chunk_size = int.from_bytes(
+            data[offset + 4 : offset + 8],
+            "little",
+        )
+        payload = offset + 8
+        chunk_end = payload + chunk_size
+        if chunk_end > len(data):
+            malformed = True
+            break
+        if chunk_type == b"ANIM":
+            animation_header = True
+        elif chunk_type == b"ANMF":
+            if chunk_size < 16:
+                malformed = True
+                break
+            frame_count += 1
+            frame_duration = int.from_bytes(
+                data[payload + 12 : payload + 15],
+                "little",
+            )
+            duration_ms += frame_duration
+            minimum_duration = (
+                frame_duration
+                if minimum_duration is None
+                else min(minimum_duration, frame_duration)
+            )
+        offset = chunk_end + (chunk_size & 1)
+
+    has_animation = animation_header or frame_count > 0
+    error = ""
+    if malformed:
+        error = "Animated WebP chunk 已損壞或不完整。"
+    elif has_animation and (
+        not animation_header
+        or frame_count < 2
+    ):
+        error = "Animated WebP 必須有 ANIM 及最少 2 個真正影格。"
+    elif has_animation and (
+        minimum_duration is None
+        or minimum_duration < 8
+    ):
+        error = "Animated WebP 每格最少要維持 8 ms。"
+    elif has_animation and duration_ms > 10_000:
+        error = "Animated WebP 總長度不可超過 10 秒。"
+    return {
+        "has_animation": has_animation,
+        "animated": has_animation and not error,
+        "frame_count": frame_count,
+        "duration_ms": duration_ms,
+        "minimum_frame_duration_ms": minimum_duration or 0,
+        "error": error,
+    }
+
+
+def is_animated_webp_bytes(data: bytes) -> bool:
+    return bool(inspect_webp_animation_bytes(data)["animated"])
+
+
 def inspect_wastickers(path: Path) -> dict[str, Any]:
     with zipfile.ZipFile(path) as archive:
         names = [
@@ -935,17 +1015,59 @@ def inspect_wastickers(path: Path) -> dict[str, Any]:
             and Path(name).name.lower() != "cover.png"
         ]
         animated = 0
+        invalid_animated = 0
         for name in names:
             if Path(name).suffix.lower() == ".webp":
                 data = archive.read(name)
-                if b"ANIM" in data[:64]:
+                animation = inspect_webp_animation_bytes(data)
+                if animation["animated"]:
                     animated += 1
+                elif animation["has_animation"]:
+                    invalid_animated += 1
+        declared_animated: bool | None = None
+        try:
+            contents = json.loads(
+                archive.read("contents.json").decode("utf-8")
+            )
+            packs = contents.get("sticker_packs", [])
+            if packs:
+                declared_animated = bool(
+                    packs[0].get("animated_sticker_pack", False)
+                )
+        except (
+            KeyError,
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+            AttributeError,
+        ):
+            pass
+    static = len(names) - animated
+    if invalid_animated:
+        kind = "invalid"
+    elif animated and static:
+        kind = "mixed"
+    elif animated:
+        kind = "animated"
+    else:
+        kind = "static"
+    metadata_matches = (
+        declared_animated is None
+        or (
+            kind != "mixed"
+            and declared_animated == (kind == "animated")
+        )
+    )
     return {
         "filename": path.name,
         "size": path.stat().st_size,
         "size_label": safe_display_size(path.stat().st_size),
         "sticker_count": len(names),
         "animated_count": animated,
+        "invalid_animated_count": invalid_animated,
+        "static_count": static,
+        "kind": kind,
+        "declared_animated": declared_animated,
+        "metadata_matches": metadata_matches,
     }
 
 
@@ -1098,13 +1220,13 @@ def label_split_packages(
     paths: list[Path] | None = None,
 ) -> list[Path]:
     packages = paths or sorted(output_dir.glob("*.wastickers"))
-    if len(packages) <= 1:
-        return packages
+    if not packages:
+        return []
 
     ordered = _ordered_engine_packages(packages, title)
     cover_data: bytes | None = None
     author_data = b""
-    stickers: list[tuple[str, bytes]] = []
+    stickers: list[tuple[str, bytes, bool]] = []
     for source in ordered:
         with zipfile.ZipFile(source, "r") as source_archive:
             for info in source_archive.infolist():
@@ -1119,46 +1241,178 @@ def label_split_packages(
                     Path(name).suffix.lower() in {".png", ".webp"}
                     and lowered != "cover.png"
                 ):
-                    stickers.append((Path(name).suffix.lower(), data))
+                    extension = Path(name).suffix.lower()
+                    animation = (
+                        inspect_webp_animation_bytes(data)
+                        if extension == ".webp"
+                        else None
+                    )
+                    if (
+                        animation is not None
+                        and animation["has_animation"]
+                        and not animation["animated"]
+                    ):
+                        raise UserInputError(
+                            f"{name} 動態 WebP 驗證失敗："
+                            f"{animation['error']}"
+                        )
+                    stickers.append(
+                        (
+                            extension,
+                            data,
+                            bool(
+                                animation is not None
+                                and animation["animated"]
+                            ),
+                        )
+                    )
 
-    part_sizes = whatsapp_part_sizes(len(stickers))
-    created: list[Path] = []
-    sticker_offset = 0
-    for part_number, part_size in enumerate(part_sizes, start=1):
-        part_title = f"{title} - Part {part_number}"
-        destination = output_dir / sanitize_filename(
-            f"{part_title}.wastickers"
+    grouped = [
+        (
+            "Animated",
+            True,
+            [item for item in stickers if item[2]],
+        ),
+        (
+            "Static",
+            False,
+            [item for item in stickers if not item[2]],
+        ),
+    ]
+    grouped = [group for group in grouped if group[2]]
+    too_small = [
+        f"{group_name} {len(group_stickers)} 張"
+        for group_name, _, group_stickers in grouped
+        if len(group_stickers) < 3
+    ]
+    if too_small:
+        detail = "、".join(too_small)
+        raise UserInputError(
+            "WhatsApp 每種貼圖最少要 3 張；分開靜態／動態後，"
+            f"{detail}，因此無法建立合規貼圖包。"
         )
-        temporary = output_dir / f".tgwa-{uuid.uuid4().hex}.tmp"
-        try:
-            with zipfile.ZipFile(
-                temporary,
-                "w",
-                compression=zipfile.ZIP_DEFLATED,
-            ) as destination_archive:
-                if cover_data is not None:
-                    destination_archive.writestr("cover.png", cover_data)
-                destination_archive.writestr("author.txt", author_data)
-                destination_archive.writestr(
-                    "title.txt",
-                    part_title + "\n",
-                )
-                current_stickers = stickers[
-                    sticker_offset : sticker_offset + part_size
-                ]
-                for local_index, (extension, data) in enumerate(
+
+    mixed = len(grouped) > 1
+    created: list[Path] = []
+    for group_name, animated, group_stickers in grouped:
+        part_sizes = whatsapp_part_sizes(len(group_stickers))
+        sticker_offset = 0
+        group_title = (
+            f"{title} - {group_name}"
+            if mixed
+            else title
+        )
+        for part_number, part_size in enumerate(part_sizes, start=1):
+            part_title = (
+                f"{group_title} - Part {part_number}"
+                if len(part_sizes) > 1
+                else group_title
+            )
+            destination = output_dir / sanitize_filename(
+                f"{part_title}.wastickers"
+            )
+            temporary = output_dir / f".tgwa-{uuid.uuid4().hex}.tmp"
+            current_stickers = group_stickers[
+                sticker_offset : sticker_offset + part_size
+            ]
+            sticker_entries = [
+                {
+                    "image_file": f"{index:03d}{extension}",
+                    "emojis": ["✨"],
+                    "accessibility_text": (
+                        f"{part_title} sticker {index}"
+                    ),
+                }
+                for index, (extension, _, _) in enumerate(
                     current_stickers,
                     start=1,
-                ):
+                )
+            ]
+            identifier_base = re.sub(
+                r"[^a-z0-9_.-]+",
+                "_",
+                part_title.lower(),
+            ).strip("_")
+            contents = {
+                "sticker_packs": [
+                    {
+                        "identifier": (
+                            (identifier_base[:80] or "tgwa_pack")
+                            + "_"
+                            + uuid.uuid4().hex[:10]
+                        ),
+                        "name": part_title,
+                        "publisher": (
+                            author_data.decode(
+                                "utf-8",
+                                errors="replace",
+                            ).strip()
+                            or "TGWA"
+                        ),
+                        "tray_image_file": "cover.png",
+                        "image_data_version": str(
+                            int(datetime.now().timestamp())
+                        ),
+                        "animated_sticker_pack": animated,
+                        "stickers": sticker_entries,
+                    }
+                ]
+            }
+            try:
+                with zipfile.ZipFile(
+                    temporary,
+                    "w",
+                    compression=zipfile.ZIP_DEFLATED,
+                ) as destination_archive:
+                    if cover_data is not None:
+                        destination_archive.writestr(
+                            "cover.png",
+                            cover_data,
+                        )
                     destination_archive.writestr(
-                        f"{local_index:03d}{extension}",
-                        data,
+                        "author.txt",
+                        author_data,
                     )
-            os.replace(temporary, destination)
-            created.append(destination)
-            sticker_offset += part_size
-        finally:
-            temporary.unlink(missing_ok=True)
+                    destination_archive.writestr(
+                        "title.txt",
+                        part_title + "\n",
+                    )
+                    destination_archive.writestr(
+                        "contents.json",
+                        json.dumps(
+                            contents,
+                            ensure_ascii=False,
+                            indent=2,
+                        ),
+                    )
+                    for local_index, (
+                        extension,
+                        data,
+                        item_animated,
+                    ) in enumerate(current_stickers, start=1):
+                        if item_animated != animated:
+                            raise RuntimeError(
+                                "貼圖分包時動畫類型驗證失敗。"
+                            )
+                        destination_archive.writestr(
+                            f"{local_index:03d}{extension}",
+                            data,
+                            compress_type=zipfile.ZIP_STORED,
+                        )
+                os.replace(temporary, destination)
+                package_info = inspect_wastickers(destination)
+                if (
+                    package_info["kind"]
+                    != ("animated" if animated else "static")
+                    or not package_info["metadata_matches"]
+                ):
+                    raise RuntimeError(
+                        "WhatsApp 貼圖包動畫 metadata 驗證失敗。"
+                    )
+                created.append(destination)
+                sticker_offset += part_size
+            finally:
+                temporary.unlink(missing_ok=True)
 
     created_set = {path.resolve() for path in created}
     for source in ordered:

@@ -103,6 +103,11 @@ public final class StickerContentProvider extends ContentProvider {
             String name = segments.get(segments.size() - 1).toLowerCase();
             return name.endsWith(".png") ? "image/png" : "image/webp";
         }
+        if (!segments.isEmpty() && segments.get(0).equals("metadata")) {
+            return "vnd.android.cursor.dir/vnd."
+                + AUTHORITY
+                + ".metadata";
+        }
         return "vnd.android.cursor.dir/vnd."
             + AUTHORITY
             + ".stickers";

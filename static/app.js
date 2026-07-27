@@ -881,9 +881,13 @@
     if (item.label) {
       meta.textContent = `${item.label} · ${item.dimensions || "512×512"}`;
     } else {
-      const animated =
-        item.animated_count > 0 ? ` · ${item.animated_count} 張動畫` : "";
-      meta.textContent = `${item.sticker_count} 張貼圖${animated}`;
+      const kind =
+        item.kind === "animated"
+          ? "動態"
+          : item.kind === "static"
+          ? "靜態"
+          : "";
+      meta.textContent = `${item.sticker_count} 張${kind}貼圖`;
     }
     copy.append(name, meta);
     if (item.platform) {
@@ -956,11 +960,16 @@
   async function renderResult(job) {
     currentShareUrl = job.share_url || "";
     const items = job.outputs || job.packages || [];
+    const packKinds = new Set(items.map((item) => item.kind).filter(Boolean));
+    const separatedKinds =
+      packKinds.has("animated") && packKinds.has("static");
     resultSummary.textContent =
       job.kind === "video"
         ? "已輸出 Telegram WEBM、WhatsApp 動態 WebP，同埋 Sticker Maker MP4 匯入片。"
         : job.kind === "whatsapp_pack"
         ? `已封裝 ${items[0]?.sticker_count || 0} 張 WhatsApp 動態貼圖；用 TGWA Bridge 開啟即可加入。`
+        : separatedKinds
+        ? `已按 WhatsApp 規格分開靜態／動態，共製作 ${items.length} 個貼圖包。`
         : `已製作 ${items.length} 個貼圖包；手機掃碼即可下載。`;
     packageList.replaceChildren(
       ...items.map((item, index) => packageRow(item, index))

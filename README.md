@@ -8,6 +8,7 @@
 - Telegram 靜態 `.webp` / `.png` 貼圖
 - Telegram 動畫 `.tgs` 貼圖
 - Telegram 影片 `.webm` 貼圖
+- 同一來源有靜態及動態貼圖時，自動分成獨立 `Static`／`Animated` pack
 - 超過 30 張自動命名及分包：`Part 1`、`Part 2`、`Part 3`……直到完成
 - 自動轉成 512 × 512、控制 WhatsApp 檔案大小
 - 影片工作室：自訂開始時間、剪輯秒數、大小、位置及透明／黑／白背景
@@ -78,7 +79,9 @@ Telegram 只會變成靜態貼圖。完成頁嘅直接加入功能會繞過呢�
    **Add to WhatsApp**。
 
 Bridge 會在手機本機安全解壓，拒絕路徑穿越或超大檔案，並再次檢查每張貼圖
-尺寸、檔案大小及動畫／靜態不可混合。匯入內容只保存在 Bridge 私有資料夾。
+尺寸、檔案大小及真正 Animated WebP 影格。若匯入檔同時有靜態及動態貼圖，
+Bridge 會自動拆成兩類，再各自按每包最多 30 張分 Part；任何一類不足 3 張就
+清楚報錯，絕不複製貼圖湊數。匯入內容只保存在 Bridge 私有資料夾。
 
 ## 點解需要 Bot Token？
 
@@ -103,11 +106,31 @@ WhatsApp 官方格式重點（貼圖包模式）：
 - 靜態貼圖最多 100 KB
 - 動畫貼圖最多 500 KB
 - 動畫最長 10 秒
+- 動畫每格最少 8 ms
 
 參考：
 
 - [Telegram Bot API](https://core.telegram.org/bots/api)
 - [WhatsApp 官方 Sticker sample](https://github.com/WhatsApp/stickers/tree/main/Android)
+
+## APK 內完整轉換／影片製作
+
+技術上可以將 Telegram 一鍵下載、裁切排版及動態貼圖製作全部搬入 Android，
+但不能用 Android `Bitmap.compress()` 將影片逐格「另存 WebP」代替真正動畫
+編碼；該路徑只會產生單幀 WebP，加入 WhatsApp 後就會變定格。
+
+安全版本會分成兩個 build：
+
+- `Bridge Lite`：目前版本；負責匯入、分類、驗證、保存原始 Animated WebP
+  bytes，再交給 WhatsApp，APK 細而且不會重編碼動畫。
+- `Maker Full`：後續加入 Telegram Bot API、影片時間軸／位置／大小 UI、
+  TGS／WEBM 解碼，以及經 JNI 使用 `libwebp WebPAnimEncoder` 真正逐幀編碼。
+  每個輸出仍要通過 `ANIM + 最少 2 個 ANMF`、8 ms、10 秒、500 KB 等檢查，
+  才可以啟用 **Add to WhatsApp**。
+
+Android SDK 本身足以處理網絡、選片及一般畫面解碼，但現時專案環境未安裝
+Android NDK；因此 v1.6.0 先完成不會定格的 Bridge 安全底層，而不會把不完整
+的單幀影片轉換器偽裝成「Maker Full」。
 
 ## 私隱與網絡
 

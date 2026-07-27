@@ -26,6 +26,7 @@ import java.util.concurrent.Executors;
 
 public final class MainActivity extends Activity {
     private static final int PICK_ARCHIVE = 48;
+    private static final int ENABLE_PACK = 200;
     private static final String WHATSAPP = "com.whatsapp";
     private static final String WHATSAPP_BUSINESS = "com.whatsapp.w4b";
 
@@ -65,6 +66,25 @@ public final class MainActivity extends Activity {
         Intent data
     ) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == ENABLE_PACK) {
+            String validationError = data == null
+                ? ""
+                : data.getStringExtra("validation_error");
+            if (validationError != null && !validationError.trim().isEmpty()) {
+                status.setText(
+                    "WhatsApp rejected this pack: " + validationError.trim()
+                );
+            } else if (resultCode == RESULT_OK) {
+                status.setText("Sticker pack added to WhatsApp.");
+            } else {
+                status.setText(
+                    "WhatsApp did not add the pack. No sticker files were "
+                        + "changed."
+                );
+            }
+            refreshPacks();
+            return;
+        }
         if (
             requestCode == PICK_ARCHIVE
             && resultCode == RESULT_OK
@@ -192,12 +212,22 @@ public final class MainActivity extends Activity {
         status.setText("Importing and validating...");
         executor.execute(() -> {
             try {
-                Pack pack = PackImporter.importUri(this, uri);
+                List<Pack> importedPacks = PackImporter.importUri(this, uri);
                 mainHandler.post(() -> {
                     importButton.setEnabled(true);
-                    status.setText(
-                        "Imported " + pack.name + " successfully."
-                    );
+                    if (importedPacks.size() == 1) {
+                        status.setText(
+                            "Imported "
+                                + importedPacks.get(0).name
+                                + " successfully."
+                        );
+                    } else {
+                        status.setText(
+                            "Imported and separated into "
+                                + importedPacks.size()
+                                + " valid packs."
+                        );
+                    }
                     refreshPacks();
                 });
             } catch (Exception error) {
@@ -261,16 +291,26 @@ public final class MainActivity extends Activity {
         card.addView(buttons, buttonsParams);
 
         if (isInstalled(WHATSAPP)) {
-            buttons.addView(addButton(
-                "Add to WhatsApp",
-                view -> enablePack(pack, WHATSAPP)
-            ));
+            if (WhitelistCheck.isWhitelisted(this, pack, WHATSAPP)) {
+                buttons.addView(addedLabel("Added to WhatsApp"));
+            } else {
+                buttons.addView(addButton(
+                    "Add to WhatsApp",
+                    view -> enablePack(pack, WHATSAPP)
+                ));
+            }
         }
         if (isInstalled(WHATSAPP_BUSINESS)) {
-            Button business = addButton(
-                "Add to Business",
-                view -> enablePack(pack, WHATSAPP_BUSINESS)
-            );
+            View business = WhitelistCheck.isWhitelisted(
+                this,
+                pack,
+                WHATSAPP_BUSINESS
+            )
+                ? addedLabel("Added to Business")
+                : addButton(
+                    "Add to Business",
+                    view -> enablePack(pack, WHATSAPP_BUSINESS)
+                );
             LinearLayout.LayoutParams businessParams =
                 new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -320,6 +360,13 @@ public final class MainActivity extends Activity {
         return button;
     }
 
+    private TextView addedLabel(String label) {
+        TextView value = text(label, 14, Color.rgb(28, 130, 82));
+        value.setGravity(Gravity.CENTER_VERTICAL);
+        value.setPadding(dp(8), dp(8), dp(8), dp(8));
+        return value;
+    }
+
     private void enablePack(Pack pack, String targetPackage) {
         Intent intent = new Intent(
             "com.whatsapp.intent.action.ENABLE_STICKER_PACK"
@@ -332,7 +379,7 @@ public final class MainActivity extends Activity {
         );
         intent.putExtra("sticker_pack_name", pack.name);
         try {
-            startActivityForResult(intent, 200);
+            startActivityForResult(intent, ENABLE_PACK);
         } catch (ActivityNotFoundException error) {
             Toast.makeText(
                 this,

@@ -10,8 +10,8 @@ android {
         applicationId "com.tool48.tgwabridge"
         minSdk 24
         targetSdk 35
-        versionCode 15
-        versionName "1.5.0"
+        versionCode 16
+        versionName "1.6.0"
         buildConfigField(
             "String",
             "CONTENT_PROVIDER_AUTHORITY",
@@ -34,4 +34,8 @@ android {
             signingConfig signingConfigs.debug
         }
     }
+}
+
+dependencies {
+    testImplementation "junit:junit:4.13.2"
 }

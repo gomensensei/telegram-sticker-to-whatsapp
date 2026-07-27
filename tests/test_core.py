@@ -53,6 +53,46 @@ def sample_video_bytes() -> bytes:
     return buffer.getvalue()
 
 
+def animated_webp_marker() -> bytes:
+    chunks = bytearray()
+    chunks.extend(b"ANIM")
+    chunks.extend((6).to_bytes(4, "little"))
+    chunks.extend(b"\x00" * 6)
+    for _ in range(2):
+        frame = bytearray(16)
+        frame[12:15] = (80).to_bytes(3, "little")
+        chunks.extend(b"ANMF")
+        chunks.extend(len(frame).to_bytes(4, "little"))
+        chunks.extend(frame)
+    return (
+        b"RIFF"
+        + (len(chunks) + 4).to_bytes(4, "little")
+        + b"WEBP"
+        + bytes(chunks)
+    )
+
+
+def sticker_webp(*, animated: bool) -> bytes:
+    buffer = io.BytesIO()
+    first = Image.new("RGBA", (512, 512), "#25d366")
+    if animated:
+        second = Image.new("RGBA", (512, 512), "#2b9ef4")
+        first.save(
+            buffer,
+            format="WEBP",
+            save_all=True,
+            append_images=[second],
+            duration=80,
+            loop=0,
+            lossless=True,
+        )
+        second.close()
+    else:
+        first.save(buffer, format="WEBP", lossless=True)
+    first.close()
+    return buffer.getvalue()
+
+
 class CoreTests(unittest.TestCase):
     def test_normalize_pack_link(self) -> None:
         self.assertEqual(
@@ -220,10 +260,30 @@ class CoreTests(unittest.TestCase):
                 archive.writestr("title.txt", "Test")
                 archive.writestr("author.txt", "Codex")
                 archive.writestr("001.png", b"static")
-                archive.writestr("002.webp", b"RIFFxxxxWEBPANIM")
+                archive.writestr("002.webp", animated_webp_marker())
             info = inspect_wastickers(package)
             self.assertEqual(info["sticker_count"], 2)
             self.assertEqual(info["animated_count"], 1)
+            self.assertEqual(info["static_count"], 1)
+            self.assertEqual(info["kind"], "mixed")
+
+    def test_invalid_animated_webp_is_not_accepted_as_motion(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            package = Path(temp_dir) / "invalid.wastickers"
+            invalid = (
+                b"RIFF"
+                + (18).to_bytes(4, "little")
+                + b"WEBP"
+                + b"ANIM"
+                + (6).to_bytes(4, "little")
+                + b"\x00" * 6
+            )
+            with zipfile.ZipFile(package, "w") as archive:
+                archive.writestr("001.webp", invalid)
+            info = inspect_wastickers(package)
+            self.assertEqual(info["animated_count"], 0)
+            self.assertEqual(info["invalid_animated_count"], 1)
+            self.assertEqual(info["kind"], "invalid")
 
     def test_build_animated_wastickers(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -331,6 +391,109 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(result["kind"], "whatsapp_pack")
             self.assertEqual(result["packages"][0]["sticker_count"], 3)
             self.assertEqual(manager.video_pack_snapshot()["count"], 0)
+
+    def test_mixed_pack_splits_static_and_animated(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir)
+            title = "Mixed Pack"
+            source = output / f"{title}.wastickers"
+            animated_data = sticker_webp(animated=True)
+            static_data = sticker_webp(animated=False)
+            with zipfile.ZipFile(source, "w") as archive:
+                archive.writestr("title.txt", title)
+                archive.writestr("author.txt", "Tool48")
+                archive.writestr("cover.png", b"cover")
+                for index in range(4):
+                    archive.writestr(
+                        f"animated-{index}.webp",
+                        animated_data,
+                    )
+                for index in range(5):
+                    archive.writestr(
+                        f"static-{index}.webp",
+                        static_data,
+                    )
+
+            packages = label_split_packages(output, title, [source])
+
+            self.assertEqual(
+                [path.name for path in packages],
+                [
+                    "Mixed Pack - Animated.wastickers",
+                    "Mixed Pack - Static.wastickers",
+                ],
+            )
+            infos = [inspect_wastickers(path) for path in packages]
+            self.assertEqual(
+                [
+                    (
+                        info["kind"],
+                        info["sticker_count"],
+                        info["metadata_matches"],
+                    )
+                    for info in infos
+                ],
+                [
+                    ("animated", 4, True),
+                    ("static", 5, True),
+                ],
+            )
+            for path, expected_flag in zip(
+                packages,
+                (True, False),
+            ):
+                with zipfile.ZipFile(path) as archive:
+                    contents = json.loads(
+                        archive.read("contents.json").decode("utf-8")
+                    )
+                    sticker_bytes = [
+                        archive.read(name)
+                        for name in archive.namelist()
+                        if name.endswith(".webp")
+                    ]
+                self.assertEqual(
+                    contents["sticker_packs"][0][
+                        "animated_sticker_pack"
+                    ],
+                    expected_flag,
+                )
+                expected_bytes = (
+                    animated_data
+                    if expected_flag
+                    else static_data
+                )
+                self.assertTrue(sticker_bytes)
+                self.assertTrue(
+                    all(data == expected_bytes for data in sticker_bytes)
+                )
+
+    def test_mixed_pack_rejects_group_below_three(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir)
+            source = output / "Too Small.wastickers"
+            with zipfile.ZipFile(source, "w") as archive:
+                archive.writestr("author.txt", "Tool48")
+                archive.writestr("cover.png", b"cover")
+                for index in range(3):
+                    archive.writestr(
+                        f"animated-{index}.webp",
+                        animated_webp_marker(),
+                    )
+                for index in range(2):
+                    archive.writestr(
+                        f"static-{index}.webp",
+                        b"RIFF\x04\x00\x00\x00WEBP",
+                    )
+
+            with self.assertRaisesRegex(
+                UserInputError,
+                "Static 2",
+            ):
+                label_split_packages(
+                    output,
+                    "Too Small",
+                    [source],
+                )
 
     def test_large_pack_gets_numbered_parts(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

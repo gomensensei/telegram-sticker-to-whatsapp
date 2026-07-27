@@ -31,7 +31,7 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
 final class PackImporter {
-    private static final int MAX_ARCHIVE_BYTES = 25 * 1024 * 1024;
+    private static final int MAX_ARCHIVE_BYTES = 35 * 1024 * 1024;
     private static final int MAX_ENTRY_BYTES = 1024 * 1024;
     private static final int MAX_ENTRIES = 80;
     private static final int STATIC_STICKER_LIMIT = 100 * 1024;
@@ -41,7 +41,7 @@ final class PackImporter {
     private PackImporter() {
     }
 
-    static Pack importUri(Context context, Uri uri)
+    static List<Pack> importUri(Context context, Uri uri)
         throws IOException, JSONException {
         Map<String, byte[]> entries = readArchive(context, uri);
         JSONObject metadata = firstPackMetadata(entries.get("contents.json"));
@@ -59,30 +59,35 @@ final class PackImporter {
             128
         );
 
+        String configuredTray = metadata.optString(
+            "tray_image_file",
+            ""
+        );
         List<String> stickerNames = new ArrayList<>();
         for (String name : entries.keySet()) {
             String lower = name.toLowerCase(Locale.ROOT);
-            if (lower.endsWith(".webp") && !isTrayName(lower)) {
+            if (
+                lower.endsWith(".webp")
+                && !isTrayName(lower)
+                && !name.equals(configuredTray)
+            ) {
                 stickerNames.add(name);
             }
         }
         Collections.sort(stickerNames, Comparator.naturalOrder());
-        if (stickerNames.size() < 3 || stickerNames.size() > 30) {
+        if (stickerNames.size() < 3 || stickerNames.size() > 60) {
             throw new IOException(
-                "A WhatsApp pack must contain between 3 and 30 stickers."
+                "An import must contain between 3 and 60 WebP stickers. "
+                    + "TGWA Bridge will split them into valid packs."
             );
         }
 
-        boolean animated = isAnimatedWebp(entries.get(stickerNames.get(0)));
+        List<String> animatedNames = new ArrayList<>();
+        List<String> staticNames = new ArrayList<>();
         for (String name : stickerNames) {
             byte[] data = entries.get(name);
-            boolean itemAnimated = isAnimatedWebp(data);
-            if (itemAnimated != animated) {
-                throw new IOException(
-                    "Static and animated stickers cannot be mixed."
-                );
-            }
-            int limit = animated
+            WebpInspector.Result webp = WebpInspector.inspect(data);
+            int limit = webp.animated
                 ? ANIMATED_STICKER_LIMIT
                 : STATIC_STICKER_LIMIT;
             if (data.length > limit) {
@@ -96,11 +101,127 @@ final class PackImporter {
             if (options.outWidth != 512 || options.outHeight != 512) {
                 throw new IOException(name + " must be exactly 512 x 512.");
             }
+            if (webp.animated) {
+                animatedNames.add(name);
+            } else {
+                staticNames.add(name);
+            }
         }
 
-        String identifier = makeIdentifier(
-            metadata.optString("identifier", title)
+        boolean mixed = !animatedNames.isEmpty() && !staticNames.isEmpty();
+        validateGroupMinimum(animatedNames, "animated");
+        validateGroupMinimum(staticNames, "static");
+        Map<String, Sticker> sourceMetadata = stickerMetadata(metadata);
+        byte[] tray = findTray(entries, metadata);
+        List<Pack> imported = new ArrayList<>();
+        List<String> importedIdentifiers = new ArrayList<>();
+        try {
+            if (!animatedNames.isEmpty()) {
+                imported.addAll(
+                    importGroup(
+                        context,
+                        entries,
+                        sourceMetadata,
+                        tray,
+                        title,
+                        publisher,
+                        animatedNames,
+                        true,
+                        mixed,
+                        importedIdentifiers
+                    )
+                );
+            }
+            if (!staticNames.isEmpty()) {
+                imported.addAll(
+                    importGroup(
+                        context,
+                        entries,
+                        sourceMetadata,
+                        tray,
+                        title,
+                        publisher,
+                        staticNames,
+                        false,
+                        mixed,
+                        importedIdentifiers
+                    )
+                );
+            }
+        } catch (IOException | JSONException | RuntimeException error) {
+            for (String identifier : importedIdentifiers) {
+                try {
+                    PackStore.deleteTree(
+                        PackStore.packDirectory(context, identifier)
+                    );
+                } catch (IOException ignored) {
+                    // Preserve the original import error.
+                }
+            }
+            throw error;
+        }
+        context.getContentResolver().notifyChange(
+            StickerContentProvider.AUTHORITY_URI,
+            null
         );
+        return imported;
+    }
+
+    private static List<Pack> importGroup(
+        Context context,
+        Map<String, byte[]> entries,
+        Map<String, Sticker> sourceMetadata,
+        byte[] tray,
+        String baseTitle,
+        String publisher,
+        List<String> names,
+        boolean animated,
+        boolean mixed,
+        List<String> importedIdentifiers
+    ) throws IOException, JSONException {
+        List<Integer> partSizes = partSizes(names.size());
+        List<Pack> result = new ArrayList<>();
+        int offset = 0;
+        String typeName = animated ? "Animated" : "Static";
+        String groupTitle = mixed
+            ? baseTitle + " - " + typeName
+            : baseTitle;
+        for (int partIndex = 0; partIndex < partSizes.size(); partIndex++) {
+            int partSize = partSizes.get(partIndex);
+            String partTitle = partSizes.size() > 1
+                ? groupTitle + " - Part " + (partIndex + 1)
+                : groupTitle;
+            List<String> partNames = new ArrayList<>(
+                names.subList(offset, offset + partSize)
+            );
+            Pack pack = writePack(
+                context,
+                entries,
+                sourceMetadata,
+                tray,
+                partTitle,
+                publisher,
+                partNames,
+                animated
+            );
+            result.add(pack);
+            importedIdentifiers.add(pack.identifier);
+            offset += partSize;
+        }
+        return result;
+    }
+
+    private static Pack writePack(
+        Context context,
+        Map<String, byte[]> entries,
+        Map<String, Sticker> sourceMetadata,
+        byte[] tray,
+        String title,
+        String publisher,
+        List<String> names,
+        boolean animated
+    ) throws IOException, JSONException {
+        String identifier = makeIdentifier(title);
         File finalDirectory = PackStore.packDirectory(context, identifier);
         File staging = new File(
             PackStore.root(context),
@@ -111,16 +232,22 @@ final class PackImporter {
         }
 
         try {
-            Map<String, Sticker> sourceMetadata = stickerMetadata(metadata);
             List<Sticker> stickers = new ArrayList<>();
-            for (int index = 0; index < stickerNames.size(); index++) {
-                String oldName = stickerNames.get(index);
+            for (int index = 0; index < names.size(); index++) {
+                String oldName = names.get(index);
+                byte[] data = entries.get(oldName);
+                WebpInspector.Result webp = WebpInspector.inspect(data);
+                if (webp.animated != animated) {
+                    throw new IOException(
+                        oldName + " changed animation type during import."
+                    );
+                }
                 String newName = String.format(
                     Locale.ROOT,
                     "%03d.webp",
                     index + 1
                 );
-                writeBytes(new File(staging, newName), entries.get(oldName));
+                writeBytes(new File(staging, newName), data);
                 Sticker source = sourceMetadata.get(oldName);
                 List<String> emojis = source == null
                     ? Collections.singletonList(DEFAULT_EMOJI)
@@ -131,10 +258,11 @@ final class PackImporter {
                 stickers.add(new Sticker(newName, emojis, accessibility));
             }
 
-            byte[] tray = findTray(entries, metadata);
-            writeTray(new File(staging, "cover.png"), tray, entries.get(
-                stickerNames.get(0)
-            ));
+            writeTray(
+                new File(staging, "cover.png"),
+                tray,
+                entries.get(names.get(0))
+            );
             Pack pack = new Pack(
                 identifier,
                 title,
@@ -151,10 +279,6 @@ final class PackImporter {
             if (!staging.renameTo(finalDirectory)) {
                 throw new IOException("Cannot finish importing the pack.");
             }
-            context.getContentResolver().notifyChange(
-                StickerContentProvider.AUTHORITY_URI,
-                null
-            );
             return pack;
         } catch (IOException | JSONException | RuntimeException error) {
             try {
@@ -164,6 +288,35 @@ final class PackImporter {
             }
             throw error;
         }
+    }
+
+    private static void validateGroupMinimum(
+        List<String> names,
+        String type
+    ) throws IOException {
+        if (!names.isEmpty() && names.size() < 3) {
+            throw new IOException(
+                "After separating static and animated stickers, the "
+                    + type
+                    + " pack has only "
+                    + names.size()
+                    + ". WhatsApp requires at least 3; stickers are never "
+                    + "duplicated just to reach the minimum."
+            );
+        }
+    }
+
+    private static List<Integer> partSizes(int count) {
+        List<Integer> result = new ArrayList<>();
+        int parts = (count + 29) / 30;
+        int remaining = count;
+        for (int index = 0; index < parts; index++) {
+            int partsAfter = parts - index - 1;
+            int current = Math.min(30, remaining - partsAfter * 3);
+            result.add(current);
+            remaining -= current;
+        }
+        return result;
     }
 
     private static Map<String, byte[]> readArchive(Context context, Uri uri)
@@ -300,23 +453,6 @@ final class PackImporter {
         return lower.equals("cover.webp")
             || lower.equals("tray.webp")
             || lower.equals("tray_image.webp");
-    }
-
-    private static boolean isAnimatedWebp(byte[] data) {
-        if (data == null || data.length < 16) {
-            return false;
-        }
-        for (int index = 12; index + 4 <= data.length; index++) {
-            if (
-                data[index] == 'A'
-                && data[index + 1] == 'N'
-                && data[index + 2] == 'I'
-                && data[index + 3] == 'M'
-            ) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private static void writeTray(
