@@ -18,7 +18,8 @@
   手機相片選擇器尋找 `.webm`
 - 可將 3–30 個 WhatsApp 動態 WebP 加入清單，一鍵組成真正會郁嘅
   `.wastickers` 貼圖包
-- 附送輕量 Android `TGWA Bridge`，直接開啟 `.wastickers` 及交給 WhatsApp
+- 附送 Android `TGWA Maker`，可在手機直接轉 Telegram／影片，亦可開啟
+  `.wastickers` 及交給 WhatsApp
 - 手機 QR Code 傳送，不用人手逐張搬檔
 - 完成後可在電腦直接下載每個輸出檔案
 
@@ -30,10 +31,10 @@
    `/newbot`，跟指示建立 bot，然後複製 Bot Token。
 4. 將 Telegram 貼圖包連結及 Bot Token 貼入介面，按「一鍵轉成
    WhatsApp 貼圖」。
-5. Android 手機第一次先安裝完成頁提供的 `TGWA-Bridge.apk`。
+5. Android 手機第一次先安裝完成頁提供的 `TGWA-Maker.apk`。
 6. 完成後可在電腦直接下載 `.wastickers`，或用同一 Wi-Fi 下的手機掃
    QR Code 下載。
-7. 在 Android 用 `TGWA Bridge` 開啟 `.wastickers`，再按
+7. 在 Android 用 `TGWA Maker` 開啟 `.wastickers`，再按
    **Add to WhatsApp**。Bridge 只需安裝一次。
 
 Bot Token 設定一次後會經 Windows DPAPI 加密，只有目前 Windows 使用者可以
@@ -65,7 +66,7 @@ Telegram 只會變成靜態貼圖。完成頁嘅直接加入功能會繞過呢�
 不會將動畫轉成靜態；亦不會為湊足三張而製造重複貼圖。
 
 `Sticker Maker Import.mp4` 仍保留作第三方 app 手動匯入後備，但正常 Android
-流程應使用上述 `.wastickers` + `TGWA Bridge`，毋須 Sticker Maker。
+流程應使用上述 `.wastickers` + `TGWA Maker`，毋須 Sticker Maker。
 
 ## WhatsApp 動態貼圖包
 
@@ -74,8 +75,8 @@ Telegram 只會變成靜態貼圖。完成頁嘅直接加入功能會繞過呢�
    最多 30 張。
 3. 輸入貼圖包名稱及作者，再按建立。
 4. 在完成頁直接下載 `.wastickers`。Android 第一次亦下載並安裝
-   `TGWA-Bridge.apk`。
-5. 在手機檔案管理員按 `.wastickers`，選擇 TGWA Bridge，完成驗證後按
+   `TGWA-Maker.apk`。
+5. 在手機檔案管理員按 `.wastickers`，選擇 TGWA Maker，完成驗證後按
    **Add to WhatsApp**。
 
 Bridge 會在手機本機安全解壓，拒絕路徑穿越或超大檔案，並再次檢查每張貼圖
@@ -91,11 +92,11 @@ API 的 `getStickerSet` 及 `getFile` 才能可靠地取得貼圖包內容，所
 Telegram」功能，你需要在自己同 Bot 嘅私人對話按一次 **Start**，等工具取得
 你嘅 Telegram user ID；之後會安全記住帳戶配對。
 
-## 點解 Android 仍要 TGWA Bridge？
+## 點解 Android 仍要 TGWA Maker？
 
 WhatsApp 官方匯入機制要求由 Android／iOS 貼圖 app 提供貼圖包，並由使用者
 明確確認加入；桌面程式不能靜默直接寫入 WhatsApp 貼圖庫。此工具已將最麻煩的
-下載、動畫轉檔、壓縮、分包與手機傳送全部自動化；TGWA Bridge 則提供 WhatsApp
+下載、動畫轉檔、壓縮、分包與手機傳送全部自動化；TGWA Maker 則提供 WhatsApp
 要求的 Android ContentProvider 及啟用 Intent，只保留 WhatsApp 必須的最後
 確認。它不是從 StickerVibe 抽取出來，亦不包含廣告、AI、帳戶或付費功能。
 
@@ -119,18 +120,20 @@ WhatsApp 官方格式重點（貼圖包模式）：
 但不能用 Android `Bitmap.compress()` 將影片逐格「另存 WebP」代替真正動畫
 編碼；該路徑只會產生單幀 WebP，加入 WhatsApp 後就會變定格。
 
-安全版本會分成兩個 build：
+`TGWA Maker 2.0` 已在 APK 內完成：
 
-- `Bridge Lite`：目前版本；負責匯入、分類、驗證、保存原始 Animated WebP
-  bytes，再交給 WhatsApp，APK 細而且不會重編碼動畫。
-- `Maker Full`：後續加入 Telegram Bot API、影片時間軸／位置／大小 UI、
-  TGS／WEBM 解碼，以及經 JNI 使用 `libwebp WebPAnimEncoder` 真正逐幀編碼。
-  每個輸出仍要通過 `ANIM + 最少 2 個 ANMF`、8 ms、10 秒、500 KB 等檢查，
-  才可以啟用 **Add to WhatsApp**。
+- 貼上 Telegram sticker pack 連結後，直接以 Bot API 下載整包。
+- 靜態 WebP／PNG、TGS 及 WEBM 分別解碼；TGS 由 Lottie 渲染，影片及 WEBM
+  經手機媒體解碼器取幀。
+- 自選手機影片、0.2–3 秒剪輯、拖曳位置、手勢縮放、透明／黑／白背景。
+- 經 JNI 使用 `libwebp WebPAnimEncoder` 真正逐幀編碼 Animated WebP。
+- 動圖與普通圖自動分開，超過 30 張自動建立 Part 1、Part 2…，並避免產生
+  少於 3 張的尾包。
+- Bot Token 由 Android Keystore 加密，只留在手機。
 
-Android SDK 本身足以處理網絡、選片及一般畫面解碼，但現時專案環境未安裝
-Android NDK；因此 v1.6.0 先完成不會定格的 Bridge 安全底層，而不會把不完整
-的單幀影片轉換器偽裝成「Maker Full」。
+每個動態輸出都要通過 `ANIM + 最少 2 個 ANMF`、每格 8 ms、最長 10 秒、
+512 × 512 及 500 KB 等檢查，才會出現在 **Add to WhatsApp** 清單。通過後的
+Animated WebP bytes 會原封不動保存及交給 WhatsApp，不會在加入時再壓成定格。
 
 ## 私隱與網絡
 
@@ -175,15 +178,16 @@ node --check .\static\app.js
 動態貼圖發佈 mock、`.wastickers` 內容檢查、影片上載／排版，以及 Telegram
 WEBM + WhatsApp Animated WebP 真實轉檔 smoke test。
 
-編譯 Android Bridge（需要 JDK 17+、Android SDK 35 及 Gradle 8.7）：
+編譯 Android Maker（需要 JDK 17+、Android SDK 35、NDK 27.3、CMake 3.22
+及 Gradle 8.7）：
 
 ```powershell
 cd .\android-bridge
-gradle assembleDebug
+gradle --no-daemon testDebugUnitTest assembleDebug
 ```
 
 目前可安裝 APK 位於
-`android-bridge/dist/TGWA-Bridge.apk`。這是 sideload 測試／自用版本，採用
+`android-bridge/dist/TGWA-Maker.apk`。這是 sideload 測試／自用版本，採用
 Android debug certificate 簽名；日後公開商店版本需要改用持久 release key。
 
 ## 疑難排解

@@ -114,6 +114,20 @@ class HttpSmokeTest(unittest.TestCase):
                 )
                 self.assertIn("has_token", config)
 
+                with urllib.request.urlopen(
+                    f"{base}/bridge-apk",
+                    timeout=10,
+                ) as response:
+                    self.assertEqual(
+                        response.headers.get_content_type(),
+                        "application/vnd.android.package-archive",
+                    )
+                    self.assertIn(
+                        "TGWA-Maker.apk",
+                        response.headers["Content-Disposition"],
+                    )
+                    self.assertEqual(response.read(2), b"PK")
+
                 qr_request = urllib.request.Request(
                     f"{base}/api/jobs/{job_id}/qr",
                     headers={"X-App-Key": app_key},

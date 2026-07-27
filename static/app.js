@@ -967,7 +967,7 @@
       job.kind === "video"
         ? "已輸出 Telegram WEBM、WhatsApp 動態 WebP，同埋 Sticker Maker MP4 匯入片。"
         : job.kind === "whatsapp_pack"
-        ? `已封裝 ${items[0]?.sticker_count || 0} 張 WhatsApp 動態貼圖；用 TGWA Bridge 開啟即可加入。`
+        ? `已封裝 ${items[0]?.sticker_count || 0} 張 WhatsApp 動態貼圖；用 TGWA Maker 開啟即可加入。`
         : separatedKinds
         ? `已按 WhatsApp 規格分開靜態／動態，共製作 ${items.length} 個貼圖包。`
         : `已製作 ${items.length} 個貼圖包；手機掃碼即可下載。`;
@@ -979,7 +979,7 @@
     const needsBridge = job.kind !== "video";
     bridgeDownloadButton.classList.toggle("hidden", !needsBridge);
     qrPanelText.textContent = needsBridge
-      ? "同一個 Wi-Fi 下掃碼下載，再用 TGWA Bridge 加入 WhatsApp。"
+      ? "同一個 Wi-Fi 下掃碼下載，再用 TGWA Maker 加入 WhatsApp。"
       : "Telegram 可直接由工具上載；WhatsApp 可先將 3–30 張加入動態 Pack。";
 
     const response = await fetch(`/api/jobs/${job.id}/qr`, {

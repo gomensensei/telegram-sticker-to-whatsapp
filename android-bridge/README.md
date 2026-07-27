@@ -1,46 +1,46 @@
-# TGWA Bridge
+# TGWA Maker Android
 
-Minimal Android bridge for importing `.wastickers` archives into WhatsApp.
+TGWA Maker 2.0 is an on-phone Telegram/WhatsApp sticker converter and video
+sticker maker.
 
-It implements the WhatsApp Android sticker-pack contract:
+## Features
 
-- `metadata`, `metadata/<identifier>`, `stickers/<identifier>` and
-  `stickers_asset/<identifier>/<file>` provider routes
-- `com.whatsapp.sticker.READ` read permission
-- `com.whatsapp.intent.action.ENABLE_STICKER_PACK` with pack id, authority and
-  name
-- standard WhatsApp and WhatsApp Business targets
+- Downloads a complete Telegram sticker set through the official Bot API.
+- Converts static WebP/PNG, TGS, and WEBM stickers on the phone.
+- Separates static and animated stickers, then splits each type into valid
+  3–30-sticker packs without duplicating stickers.
+- Provides a video editor with 0.2–3 second trimming, position, pinch scaling,
+  and transparent/black/white backgrounds.
+- Encodes real Animated WebP through JNI and libwebp `WebPAnimEncoder`.
+- Imports existing `.wastickers` archives.
+- Adds packs to WhatsApp or WhatsApp Business through the official provider
+  and enable-pack intent contract.
+- Encrypts the Telegram Bot Token with Android Keystore. It is never included
+  in a pack, log, or build artifact.
 
-The importer accepts up to 60 WebP stickers, checks 512 × 512 dimensions and
-the static/animated file-size limits. It inspects RIFF chunks instead of trusting
-the filename or metadata: an animated sticker must contain `ANIM`, at least two
-`ANMF` frames, frame durations of at least 8 ms, and no more than 10 seconds in
-total.
-
-Mixed imports are separated into independent Animated and Static packs, then
-each group is split into 3–30-sticker parts. A group below three is rejected
-instead of duplicating stickers. Sticker bytes are copied unchanged, preventing
-an animated WebP from being flattened during import. The metadata exposed to
-WhatsApp uses the matching `animated_sticker_pack` value.
-
-ZIP entries must be plain root filenames, which prevents archive path traversal.
-Imported packs stay in the app's private storage. The UI supports WhatsApp and
-WhatsApp Business, displays WhatsApp validation errors, and uses the optional
-whitelist provider to show when a pack has already been added.
+Animated output is accepted only when it contains `ANIM` and at least two
+`ANMF` chunks, is exactly 512 × 512, has frame durations of at least 8 ms,
+lasts no more than 10 seconds, and is no larger than 500 KB. Accepted bytes are
+copied unchanged into private app storage and streamed unchanged to WhatsApp.
+Static output is limited to 100 KB.
 
 ## Build
 
-Requirements: JDK 17+, Android SDK platform 35, and Gradle 8.7.
+Requirements:
+
+- JDK 17+
+- Android SDK platform 35
+- Android NDK 27.3.13750724
+- CMake 3.22.1
+- Gradle 8.7
 
 ```powershell
 gradle --no-daemon testDebugUnitTest assembleDebug
 ```
 
-If the checkout path contains non-ASCII characters and Gradle's Windows test
-worker cannot read its UTF-8 classpath argument file, map the project to an
-ASCII drive letter for the test command. APK compilation itself is unaffected.
+If the checkout path contains non-ASCII characters, map it to an ASCII drive
+letter before running Gradle on Windows. The APK is written to
+`app/build/outputs/apk/debug/app-debug.apk`.
 
-The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
-
-This is an independent implementation based on the documented provider and
-intent contract. No source code or assets were copied from StickerVibe.
+This is an independent implementation based on WhatsApp's documented Android
+sticker provider contract. No StickerVibe source code or assets are included.

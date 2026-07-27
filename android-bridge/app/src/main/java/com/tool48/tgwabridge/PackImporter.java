@@ -78,7 +78,7 @@ final class PackImporter {
         if (stickerNames.size() < 3 || stickerNames.size() > 60) {
             throw new IOException(
                 "An import must contain between 3 and 60 WebP stickers. "
-                    + "TGWA Bridge will split them into valid packs."
+                    + "TGWA Maker will split them into valid packs."
             );
         }
 
@@ -179,7 +179,7 @@ final class PackImporter {
         boolean mixed,
         List<String> importedIdentifiers
     ) throws IOException, JSONException {
-        List<Integer> partSizes = partSizes(names.size());
+        List<Integer> partSizes = PackPartitioner.sizes(names.size());
         List<Pack> result = new ArrayList<>();
         int offset = 0;
         String typeName = animated ? "Animated" : "Static";
@@ -304,19 +304,6 @@ final class PackImporter {
                     + "duplicated just to reach the minimum."
             );
         }
-    }
-
-    private static List<Integer> partSizes(int count) {
-        List<Integer> result = new ArrayList<>();
-        int parts = (count + 29) / 30;
-        int remaining = count;
-        for (int index = 0; index < parts; index++) {
-            int partsAfter = parts - index - 1;
-            int current = Math.min(30, remaining - partsAfter * 3);
-            result.add(current);
-            remaining -= current;
-        }
-        return result;
     }
 
     private static Map<String, byte[]> readArchive(Context context, Uri uri)
@@ -455,7 +442,7 @@ final class PackImporter {
             || lower.equals("tray_image.webp");
     }
 
-    private static void writeTray(
+    static void writeTray(
         File destination,
         byte[] preferred,
         byte[] fallback

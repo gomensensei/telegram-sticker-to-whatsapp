@@ -31,7 +31,7 @@ from tgwa.core import (
 
 STATIC_DIR = ROOT / "static"
 SERVER_STATE = LOCAL_DIR / "server.json"
-BRIDGE_APK = ROOT / "android-bridge" / "dist" / "TGWA-Bridge.apk"
+BRIDGE_APK = ROOT / "android-bridge" / "dist" / "TGWA-Maker.apk"
 
 
 class AppServer(ThreadingHTTPServer):
@@ -305,7 +305,7 @@ class RequestHandler(BaseHTTPRequestHandler):
     def _serve_bridge_apk(self) -> None:
         if not BRIDGE_APK.is_file():
             self._send_json(
-                {"error": "TGWA Bridge APK 尚未編譯完成。"},
+                {"error": "TGWA Maker APK 尚未編譯完成。"},
                 HTTPStatus.NOT_FOUND,
             )
             return
@@ -314,7 +314,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             "application/vnd.android.package-archive",
             extra_headers={
                 "Content-Disposition": (
-                    'attachment; filename="TGWA-Bridge.apk"'
+                    'attachment; filename="TGWA-Maker.apk"'
                 )
             },
         )

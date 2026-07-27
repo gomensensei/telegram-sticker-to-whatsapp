@@ -1,0 +1,154 @@
+package com.tool48.tgwabridge;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+
+import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
+
+import androidx.test.ext.junit.runners.AndroidJUnit4;
+import androidx.test.platform.app.InstrumentationRegistry;
+
+import org.junit.Test;
+import org.junit.runner.RunWith;
+
+import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.zip.GZIPOutputStream;
+
+@RunWith(AndroidJUnit4.class)
+public final class MakerInstrumentedTest {
+    @Test
+    public void nativeEncoderProducesRealAnimatedWebp() throws Exception {
+        byte[] data;
+        try (
+            NativeWebpEncoder encoder =
+                new NativeWebpEncoder(512, 512, 80)
+        ) {
+            Bitmap first = square(Color.RED, 80);
+            Bitmap second = square(Color.BLUE, 320);
+            try {
+                encoder.addFrame(first, 0);
+                encoder.addFrame(second, 100);
+                data = encoder.finish(200);
+            } finally {
+                first.recycle();
+                second.recycle();
+            }
+        }
+        WebpInspector.Result result = WebpInspector.inspect(data);
+        assertTrue(result.animated);
+        assertTrue(result.frameCount >= 2);
+        assertEquals(200, result.durationMs);
+        assertTrue(data.length <= 500 * 1024);
+        Bitmap decoded = BitmapFactory.decodeByteArray(
+            data,
+            0,
+            data.length
+        );
+        try {
+            assertEquals(0, Color.alpha(decoded.getPixel(0, 0)));
+        } finally {
+            decoded.recycle();
+        }
+    }
+
+    @Test
+    public void tgsRendererProducesRealAnimatedWebp() throws Exception {
+        byte[] data = TgsStickerRenderer.render(
+            gzip(simpleMovingCircleLottie()),
+            null
+        );
+        WebpInspector.Result result = WebpInspector.inspect(data);
+        assertTrue(result.animated);
+        assertTrue(result.frameCount >= 2);
+        assertTrue(data.length <= 500 * 1024);
+    }
+
+    @Test
+    public void staticRendererProducesValidStaticWebp() throws Exception {
+        Bitmap source = Bitmap.createBitmap(
+            300,
+            180,
+            Bitmap.Config.ARGB_8888
+        );
+        source.eraseColor(Color.GREEN);
+        ByteArrayOutputStream png = new ByteArrayOutputStream();
+        try {
+            assertTrue(
+                source.compress(Bitmap.CompressFormat.PNG, 100, png)
+            );
+        } finally {
+            source.recycle();
+        }
+        byte[] data = StaticStickerRenderer.render(png.toByteArray());
+        assertFalse(WebpInspector.inspect(data).animated);
+        assertTrue(data.length <= 100 * 1024);
+    }
+
+    @Test
+    public void botTokenRoundTripsThroughAndroidKeystore()
+        throws Exception {
+        Context context = InstrumentationRegistry
+            .getInstrumentation()
+            .getTargetContext();
+        String token = "123456789:"
+            + "abcdefghijklmnopqrstuvwxyz"
+            + "_ABC123";
+        try {
+            BotTokenStore.save(context, token);
+            assertEquals(token, BotTokenStore.load(context));
+        } finally {
+            BotTokenStore.clear(context);
+        }
+    }
+
+    private static Bitmap square(int color, int left) {
+        Bitmap bitmap = Bitmap.createBitmap(
+            512,
+            512,
+            Bitmap.Config.ARGB_8888
+        );
+        bitmap.eraseColor(Color.TRANSPARENT);
+        Canvas canvas = new Canvas(bitmap);
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        paint.setColor(color);
+        canvas.drawRect(left, 206, left + 100, 306, paint);
+        return bitmap;
+    }
+
+    private static byte[] gzip(String value) throws Exception {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        try (GZIPOutputStream gzip = new GZIPOutputStream(output)) {
+            gzip.write(value.getBytes(StandardCharsets.UTF_8));
+        }
+        return output.toByteArray();
+    }
+
+    private static String simpleMovingCircleLottie() {
+        return "{"
+            + "\"v\":\"5.7.4\",\"fr\":30,\"ip\":0,\"op\":30,"
+            + "\"w\":512,\"h\":512,\"nm\":\"moving-dot\","
+            + "\"ddd\":0,\"assets\":[],\"layers\":[{"
+            + "\"ddd\":0,\"ind\":1,\"ty\":4,\"nm\":\"dot\",\"sr\":1,"
+            + "\"ks\":{"
+            + "\"o\":{\"a\":0,\"k\":100},"
+            + "\"r\":{\"a\":0,\"k\":0},"
+            + "\"p\":{\"a\":1,\"k\":["
+            + "{\"t\":0,\"s\":[64,256,0],\"e\":[448,256,0]},"
+            + "{\"t\":30,\"s\":[448,256,0]}]},"
+            + "\"a\":{\"a\":0,\"k\":[0,0,0]},"
+            + "\"s\":{\"a\":0,\"k\":[100,100,100]}},"
+            + "\"ao\":0,\"shapes\":["
+            + "{\"ty\":\"el\",\"p\":{\"a\":0,\"k\":[0,0]},"
+            + "\"s\":{\"a\":0,\"k\":[100,100]},\"nm\":\"Ellipse\"},"
+            + "{\"ty\":\"fl\",\"c\":{\"a\":0,\"k\":[1,0,0,1]},"
+            + "\"o\":{\"a\":0,\"k\":100},\"r\":1,\"nm\":\"Fill\"}],"
+            + "\"ip\":0,\"op\":30,\"st\":0,\"bm\":0}]}";
+    }
+}

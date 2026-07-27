@@ -14,6 +14,7 @@ import org.json.JSONArray;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.util.List;
+import java.util.Locale;
 
 public final class StickerContentProvider extends ContentProvider {
     static final String AUTHORITY = BuildConfig.CONTENT_PROVIDER_AUTHORITY;
@@ -100,7 +101,9 @@ public final class StickerContentProvider extends ContentProvider {
             !segments.isEmpty()
             && segments.get(0).equals("stickers_asset")
         ) {
-            String name = segments.get(segments.size() - 1).toLowerCase();
+            String name = segments.get(
+                segments.size() - 1
+            ).toLowerCase(Locale.ROOT);
             return name.endsWith(".png") ? "image/png" : "image/webp";
         }
         if (!segments.isEmpty() && segments.get(0).equals("metadata")) {

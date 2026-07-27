@@ -1178,7 +1178,7 @@ def build_animated_wastickers(
         "label": f"WhatsApp 動態貼圖包 · {len(sources)} 張",
         "platform": "WhatsApp",
         "import_hint": (
-            "在 Android 用 TGWA Bridge 開啟，再按 Add to WhatsApp。"
+            "在 Android 用 TGWA Maker 開啟，再按 Add to WhatsApp。"
         ),
     }
 
@@ -2391,14 +2391,14 @@ def mobile_share_page(job: dict[str, Any], token: str) -> bytes:
 """
     else:
         steps = """
-<li>首次使用先下載並安裝下面嘅 <strong>TGWA Bridge</strong>。</li>
-<li>按上面「下載」，完成後用 TGWA Bridge 開啟
+<li>首次使用先下載並安裝下面嘅 <strong>TGWA Maker</strong>。</li>
+<li>按上面「下載」，完成後用 TGWA Maker 開啟
 <strong>.wastickers</strong> 檔案。</li>
 <li>在 Bridge 按「Add to WhatsApp」，再由 WhatsApp 確認加入。</li>
 """
     bridge_link = (
         '<a class="bridge-download" href="/bridge-apk">'
-        "下載 TGWA Bridge.apk（只需安裝一次）</a>"
+        "下載 TGWA Maker.apk（只需安裝一次）</a>"
         if not is_video
         else ""
     )
