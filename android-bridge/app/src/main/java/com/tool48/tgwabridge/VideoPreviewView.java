@@ -5,6 +5,7 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.RectF;
 import android.view.MotionEvent;
 import android.view.ScaleGestureDetector;
 import android.view.View;
@@ -15,6 +16,12 @@ final class VideoPreviewView extends View {
     }
 
     private final ScaleGestureDetector scaleDetector;
+    private final Paint backgroundPaint = new Paint();
+    private final Paint imagePaint = new Paint(
+        Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG
+    );
+    private final Paint messagePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final RectF imageRect = new RectF();
     private Bitmap source;
     private float scale = 1f;
     private float offsetX;
@@ -27,7 +34,9 @@ final class VideoPreviewView extends View {
 
     VideoPreviewView(Context context) {
         super(context);
-        setBackgroundColor(Color.rgb(232, 235, 240));
+        setBackgroundColor(Color.rgb(10, 21, 20));
+        messagePaint.setColor(Color.rgb(145, 170, 164));
+        messagePaint.setTextAlign(Paint.Align.CENTER);
         scaleDetector = new ScaleGestureDetector(
             context,
             new ScaleGestureDetector.SimpleOnScaleGestureListener() {
@@ -78,15 +87,12 @@ final class VideoPreviewView extends View {
         float top = (getHeight() - side) / 2f;
         drawCanvasBackground(canvas, left, top, side);
         if (source == null || source.isRecycled()) {
-            Paint message = new Paint(Paint.ANTI_ALIAS_FLAG);
-            message.setColor(Color.rgb(100, 108, 120));
-            message.setTextAlign(Paint.Align.CENTER);
-            message.setTextSize(side / 18f);
+            messagePaint.setTextSize(side / 18f);
             canvas.drawText(
-                "Choose a video to preview",
+                getContext().getString(R.string.no_video),
                 getWidth() / 2f,
                 getHeight() / 2f,
-                message
+                messagePaint
             );
             return;
         }
@@ -104,15 +110,13 @@ final class VideoPreviewView extends View {
         float y = top
             + (side - height) / 2f
             + offsetY * side / 2f;
-        Paint imagePaint = new Paint(
-            Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG
-        );
+        imageRect.set(x, y, x + width, y + height);
         canvas.save();
         canvas.clipRect(left, top, left + side, top + side);
         canvas.drawBitmap(
             source,
             null,
-            new android.graphics.RectF(x, y, x + width, y + height),
+            imageRect,
             imagePaint
         );
         canvas.restore();
@@ -178,31 +182,42 @@ final class VideoPreviewView extends View {
         float top,
         float side
     ) {
-        Paint paint = new Paint();
         if (background == VideoStickerSettings.Background.BLACK) {
-            paint.setColor(Color.BLACK);
-            canvas.drawRect(left, top, left + side, top + side, paint);
+            backgroundPaint.setColor(Color.BLACK);
+            canvas.drawRect(
+                left,
+                top,
+                left + side,
+                top + side,
+                backgroundPaint
+            );
         } else if (
             background == VideoStickerSettings.Background.WHITE
         ) {
-            paint.setColor(Color.WHITE);
-            canvas.drawRect(left, top, left + side, top + side, paint);
+            backgroundPaint.setColor(Color.WHITE);
+            canvas.drawRect(
+                left,
+                top,
+                left + side,
+                top + side,
+                backgroundPaint
+            );
         } else {
             int cells = 12;
             float cell = side / cells;
             for (int row = 0; row < cells; row++) {
                 for (int column = 0; column < cells; column++) {
-                    paint.setColor(
+                    backgroundPaint.setColor(
                         ((row + column) & 1) == 0
-                            ? Color.WHITE
-                            : Color.rgb(214, 218, 224)
+                            ? Color.rgb(20, 36, 33)
+                            : Color.rgb(38, 59, 55)
                     );
                     canvas.drawRect(
                         left + column * cell,
                         top + row * cell,
                         left + (column + 1) * cell,
                         top + (row + 1) * cell,
-                        paint
+                        backgroundPaint
                     );
                 }
             }

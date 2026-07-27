@@ -3,15 +3,22 @@ package com.tool48.tgwabridge;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
 import android.content.Intent;
+import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.InputType;
+import android.text.method.HideReturnsTransformationMethod;
+import android.text.method.PasswordTransformationMethod;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -39,6 +46,25 @@ public final class MainActivity extends Activity {
     private static final int ENABLE_PACK = 200;
     private static final String WHATSAPP = "com.whatsapp";
     private static final String WHATSAPP_BUSINESS = "com.whatsapp.w4b";
+    private static final int INK = Color.rgb(8, 18, 17);
+    private static final int SURFACE = Color.rgb(16, 28, 27);
+    private static final int SURFACE_2 = Color.rgb(20, 36, 33);
+    private static final int FIELD = Color.rgb(10, 21, 20);
+    private static final int LINE = Color.rgb(38, 59, 55);
+    private static final int TEXT = Color.rgb(241, 250, 247);
+    private static final int MUTED = Color.rgb(145, 170, 164);
+    private static final int DIM = Color.rgb(97, 123, 117);
+    private static final int MINT = Color.rgb(112, 239, 189);
+    private static final int MINT_STRONG = Color.rgb(37, 211, 102);
+    private static final int DANGER = Color.rgb(255, 127, 127);
+    private static final String STATE_VIDEO = "state_video";
+    private static final String STATE_LINK = "state_link";
+    private static final String STATE_TOKEN = "state_token";
+    private static final String STATE_TG_PUBLISHER = "state_tg_publisher";
+    private static final String STATE_MAKER_TITLE = "state_maker_title";
+    private static final String STATE_MAKER_PUBLISHER =
+        "state_maker_publisher";
+    private static final String STATE_SELECTED_TAB = "state_selected_tab";
 
     private final ExecutorService executor =
         Executors.newSingleThreadExecutor();
@@ -48,6 +74,9 @@ public final class MainActivity extends Activity {
     private Button importButton;
     private Button telegramConvertButton;
     private Button clearBotTokenButton;
+    private Button tokenVisibilityButton;
+    private Button telegramTabButton;
+    private Button videoTabButton;
     private Button chooseVideoButton;
     private Button renderVideoButton;
     private Button buildMakerPackButton;
@@ -73,16 +102,50 @@ public final class MainActivity extends Activity {
     private EditText telegramPublisher;
     private ProgressBar telegramProgress;
     private TextView telegramStatus;
+    private TextView tokenSavedStatus;
+    private LinearLayout telegramPanel;
+    private LinearLayout makerPanel;
     private Uri selectedVideoUri;
     private long selectedVideoDurationMs;
     private int previewGeneration;
+    private int selectedTab;
+    private boolean tokenVisible;
+
+    @Override
+    protected void attachBaseContext(Context newBase) {
+        super.attachBaseContext(AppLocale.wrap(newBase));
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        getWindow().setStatusBarColor(INK);
+        getWindow().setNavigationBarColor(INK);
+        getWindow().getDecorView().setSystemUiVisibility(0);
         buildInterface();
+        restoreInterfaceState(savedInstanceState);
         refreshPacks();
         consumeIntent(getIntent());
+    }
+
+    @Override
+    protected void onSaveInstanceState(Bundle outState) {
+        super.onSaveInstanceState(outState);
+        if (selectedVideoUri != null) {
+            outState.putString(STATE_VIDEO, selectedVideoUri.toString());
+        }
+        outState.putString(STATE_LINK, valueOf(telegramLink));
+        outState.putString(STATE_TOKEN, valueOf(telegramToken));
+        outState.putString(
+            STATE_TG_PUBLISHER,
+            valueOf(telegramPublisher)
+        );
+        outState.putString(STATE_MAKER_TITLE, valueOf(makerPackTitle));
+        outState.putString(
+            STATE_MAKER_PUBLISHER,
+            valueOf(makerPackPublisher)
+        );
+        outState.putInt(STATE_SELECTED_TAB, selectedTab);
     }
 
     @Override
@@ -124,15 +187,15 @@ public final class MainActivity extends Activity {
                 : data.getStringExtra("validation_error");
             if (validationError != null && !validationError.trim().isEmpty()) {
                 status.setText(
-                    "WhatsApp rejected this pack: " + validationError.trim()
+                    getString(
+                        R.string.whatsapp_rejected,
+                        validationError.trim()
+                    )
                 );
             } else if (resultCode == RESULT_OK) {
-                status.setText("Sticker pack added to WhatsApp.");
+                status.setText(R.string.whatsapp_added);
             } else {
-                status.setText(
-                    "WhatsApp did not add the pack. No sticker files were "
-                        + "changed."
-                );
+                status.setText(R.string.whatsapp_not_added);
             }
             refreshPacks();
             return;
@@ -152,10 +215,10 @@ public final class MainActivity extends Activity {
     private void buildInterface() {
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
-        scroll.setBackgroundColor(Color.rgb(247, 248, 250));
+        scroll.setBackgroundColor(INK);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(20), dp(28), dp(20), dp(32));
+        root.setPadding(dp(18), dp(18), dp(18), dp(36));
         scroll.addView(
             root,
             new ScrollView.LayoutParams(
@@ -164,151 +227,383 @@ public final class MainActivity extends Activity {
             )
         );
 
-        TextView title = text(
-            "TGWA Maker",
-            28,
-            Color.rgb(26, 35, 50)
+        LinearLayout topBar = new LinearLayout(this);
+        topBar.setOrientation(LinearLayout.HORIZONTAL);
+        topBar.setGravity(Gravity.CENTER_VERTICAL);
+        TextView brandMark = text("↗", 20, INK);
+        brandMark.setGravity(Gravity.CENTER);
+        brandMark.setTypeface(Typeface.DEFAULT_BOLD);
+        brandMark.setBackground(rounded(MINT, 12, MINT));
+        topBar.addView(
+            brandMark,
+            new LinearLayout.LayoutParams(dp(42), dp(42))
         );
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        root.addView(title);
 
-        TextView intro = text(
-            "Convert a whole Telegram sticker pack or make real Animated "
-                + "WebP stickers from video, entirely on your phone.",
-            16,
-            Color.rgb(79, 89, 105)
+        LinearLayout brandCopy = new LinearLayout(this);
+        brandCopy.setOrientation(LinearLayout.VERTICAL);
+        brandCopy.setPadding(dp(10), 0, 0, 0);
+        TextView brand = text(
+            getString(R.string.brand_name),
+            17,
+            TEXT
         );
-        LinearLayout.LayoutParams introParams = matchWrap();
-        introParams.topMargin = dp(8);
-        root.addView(intro, introParams);
-
-        buildTelegramInterface(root);
-        buildMakerInterface(root);
-
-        TextView importTitle = text(
-            "Import an existing pack",
-            20,
-            Color.rgb(26, 35, 50)
+        brand.setTypeface(Typeface.DEFAULT_BOLD);
+        brandCopy.addView(brand);
+        TextView relay = text(
+            getString(R.string.brand_subtitle),
+            10,
+            DIM
         );
-        importTitle.setTypeface(Typeface.DEFAULT_BOLD);
-        LinearLayout.LayoutParams importTitleParams = matchWrap();
-        importTitleParams.topMargin = dp(30);
-        root.addView(importTitle, importTitleParams);
-
-        importButton = new Button(this);
-        importButton.setText("Import .wastickers");
-        importButton.setAllCaps(false);
-        importButton.setTextSize(17);
-        importButton.setOnClickListener(view -> pickArchive());
-        LinearLayout.LayoutParams buttonParams = matchWrap();
-        buttonParams.topMargin = dp(20);
-        root.addView(importButton, buttonParams);
-
-        status = text("", 14, Color.rgb(79, 89, 105));
-        LinearLayout.LayoutParams statusParams = matchWrap();
-        statusParams.topMargin = dp(12);
-        root.addView(status, statusParams);
-
-        TextView savedTitle = text(
-            "Packs ready for WhatsApp",
-            20,
-            Color.rgb(26, 35, 50)
-        );
-        savedTitle.setTypeface(Typeface.DEFAULT_BOLD);
-        LinearLayout.LayoutParams savedParams = matchWrap();
-        savedParams.topMargin = dp(24);
-        root.addView(savedTitle, savedParams);
-
-        packList = new LinearLayout(this);
-        packList.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams listParams = matchWrap();
-        listParams.topMargin = dp(8);
-        root.addView(packList, listParams);
-        setContentView(scroll);
-        refreshMakerQueue();
-    }
-
-    private void buildTelegramInterface(LinearLayout root) {
-        TextView sectionTitle = text(
-            "Convert a Telegram sticker pack",
-            22,
-            Color.rgb(26, 35, 50)
-        );
-        sectionTitle.setTypeface(Typeface.DEFAULT_BOLD);
-        LinearLayout.LayoutParams sectionParams = matchWrap();
-        sectionParams.topMargin = dp(26);
-        root.addView(sectionTitle, sectionParams);
-
-        TextView hint = text(
-            "Paste a t.me/addstickers link. Static, TGS and WEBM stickers "
-                + "are converted on this phone, separated by type, and "
-                + "automatically split into packs of up to 30.",
-            14,
-            Color.rgb(79, 89, 105)
-        );
-        root.addView(hint, matchWrap());
-
-        telegramLink = new EditText(this);
-        telegramLink.setHint(
-            "https://t.me/addstickers/PackName"
-        );
-        telegramLink.setSingleLine(true);
-        LinearLayout.LayoutParams linkParams = matchWrap();
-        linkParams.topMargin = dp(8);
-        root.addView(telegramLink, linkParams);
-
-        telegramToken = new EditText(this);
-        telegramToken.setHint("Telegram Bot Token");
-        telegramToken.setSingleLine(true);
-        telegramToken.setInputType(
-            InputType.TYPE_CLASS_TEXT
-                | InputType.TYPE_TEXT_VARIATION_PASSWORD
-        );
-        root.addView(telegramToken, matchWrap());
-
-        TextView tokenHint = text(
-            "Create one once at https://t.me/BotFather using /newbot. The "
-                + "token is encrypted with Android Keystore, stays on this "
-                + "phone, and is used only for Telegram Bot API downloads.",
-            12,
-            Color.rgb(105, 113, 126)
-        );
-        tokenHint.setAutoLinkMask(android.text.util.Linkify.WEB_URLS);
-        tokenHint.setLinksClickable(true);
-        root.addView(tokenHint, matchWrap());
-
-        telegramPublisher = new EditText(this);
-        telegramPublisher.setHint("Publisher");
-        telegramPublisher.setSingleLine(true);
-        telegramPublisher.setText("TGWA Maker");
-        root.addView(telegramPublisher, matchWrap());
-
-        LinearLayout buttons = new LinearLayout(this);
-        buttons.setOrientation(LinearLayout.HORIZONTAL);
-        telegramConvertButton = addButton(
-            "Convert whole pack",
-            view -> convertTelegramPack()
-        );
-        clearBotTokenButton = addButton(
-            "Forget token",
-            view -> clearTelegramToken()
-        );
-        buttons.addView(
-            telegramConvertButton,
+        relay.setLetterSpacing(0.13f);
+        brandCopy.addView(relay);
+        topBar.addView(
+            brandCopy,
             new LinearLayout.LayoutParams(
                 0,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 1f
             )
         );
-        LinearLayout.LayoutParams clearParams =
+
+        Button language = addButton(
+            getString(R.string.language_toggle),
+            view -> AppLocale.toggle(this)
+        );
+        styleChip(language);
+        topBar.addView(language);
+        root.addView(topBar, matchWrap());
+
+        TextView localOnly = text(
+            getString(R.string.local_only),
+            11,
+            MINT
+        );
+        localOnly.setTypeface(Typeface.DEFAULT_BOLD);
+        localOnly.setLetterSpacing(0.08f);
+        localOnly.setPadding(dp(11), dp(7), dp(11), dp(7));
+        localOnly.setBackground(rounded(SURFACE_2, 999, LINE));
+        LinearLayout.LayoutParams localParams = wrapWrap();
+        localParams.topMargin = dp(28);
+        root.addView(localOnly, localParams);
+
+        TextView heroEyebrow = text(
+            getString(R.string.hero_eyebrow),
+            12,
+            MINT
+        );
+        heroEyebrow.setTypeface(Typeface.DEFAULT_BOLD);
+        heroEyebrow.setLetterSpacing(0.08f);
+        LinearLayout.LayoutParams heroEyebrowParams = matchWrap();
+        heroEyebrowParams.topMargin = dp(18);
+        root.addView(heroEyebrow, heroEyebrowParams);
+
+        TextView title = text(
+            getString(R.string.hero_title),
+            34,
+            TEXT
+        );
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        LinearLayout.LayoutParams titleParams = matchWrap();
+        titleParams.topMargin = dp(10);
+        root.addView(title, titleParams);
+
+        TextView intro = text(
+            getString(R.string.hero_subtitle),
+            16,
+            MUTED
+        );
+        LinearLayout.LayoutParams introParams = matchWrap();
+        introParams.topMargin = dp(12);
+        root.addView(intro, introParams);
+
+        LinearLayout converterCard = card();
+        LinearLayout.LayoutParams converterParams = matchWrap();
+        converterParams.topMargin = dp(26);
+        root.addView(converterCard, converterParams);
+
+        TextView converterEyebrow = text(
+            getString(R.string.new_conversion),
+            11,
+            MINT
+        );
+        converterEyebrow.setTypeface(Typeface.DEFAULT_BOLD);
+        converterEyebrow.setLetterSpacing(0.09f);
+        converterCard.addView(converterEyebrow);
+        TextView converterTitle = text(
+            getString(R.string.start_conversion),
+            24,
+            TEXT
+        );
+        converterTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        LinearLayout.LayoutParams converterTitleParams = matchWrap();
+        converterTitleParams.topMargin = dp(6);
+        converterCard.addView(converterTitle, converterTitleParams);
+
+        LinearLayout tabs = new LinearLayout(this);
+        tabs.setOrientation(LinearLayout.HORIZONTAL);
+        tabs.setPadding(dp(4), dp(4), dp(4), dp(4));
+        tabs.setBackground(rounded(FIELD, 15, LINE));
+        telegramTabButton = new Button(this);
+        telegramTabButton.setText(R.string.tab_telegram);
+        telegramTabButton.setAllCaps(false);
+        telegramTabButton.setOnClickListener(view -> showTab(0));
+        videoTabButton = new Button(this);
+        videoTabButton.setText(R.string.tab_video);
+        videoTabButton.setAllCaps(false);
+        videoTabButton.setOnClickListener(view -> showTab(1));
+        tabs.addView(
+            telegramTabButton,
             new LinearLayout.LayoutParams(
+                0,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            );
-        clearParams.leftMargin = dp(6);
-        buttons.addView(clearBotTokenButton, clearParams);
-        root.addView(buttons, matchWrap());
+                1f
+            )
+        );
+        tabs.addView(
+            videoTabButton,
+            new LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f
+            )
+        );
+        LinearLayout.LayoutParams tabsParams = matchWrap();
+        tabsParams.topMargin = dp(18);
+        converterCard.addView(tabs, tabsParams);
+
+        telegramPanel = new LinearLayout(this);
+        telegramPanel.setOrientation(LinearLayout.VERTICAL);
+        buildTelegramInterface(telegramPanel);
+        converterCard.addView(telegramPanel, matchWrap());
+
+        makerPanel = new LinearLayout(this);
+        makerPanel.setOrientation(LinearLayout.VERTICAL);
+        buildMakerInterface(makerPanel);
+        converterCard.addView(makerPanel, matchWrap());
+        showTab(0);
+
+        buildHandlesCard(root);
+
+        LinearLayout importCard = card();
+        LinearLayout.LayoutParams importCardParams = matchWrap();
+        importCardParams.topMargin = dp(16);
+        root.addView(importCard, importCardParams);
+        TextView importTitle = text(
+            getString(R.string.import_title),
+            20,
+            TEXT
+        );
+        importTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        importCard.addView(importTitle);
+        TextView importHint = text(
+            getString(R.string.import_hint),
+            14,
+            MUTED
+        );
+        LinearLayout.LayoutParams importHintParams = matchWrap();
+        importHintParams.topMargin = dp(6);
+        importCard.addView(importHint, importHintParams);
+        importButton = addButton(
+            getString(R.string.import_wastickers),
+            view -> pickArchive()
+        );
+        styleSecondary(importButton);
+        LinearLayout.LayoutParams buttonParams = matchWrap();
+        buttonParams.topMargin = dp(14);
+        importCard.addView(importButton, buttonParams);
+        status = text("", 14, MUTED);
+        LinearLayout.LayoutParams statusParams = matchWrap();
+        statusParams.topMargin = dp(10);
+        importCard.addView(status, statusParams);
+
+        LinearLayout packsCard = card();
+        LinearLayout.LayoutParams packsCardParams = matchWrap();
+        packsCardParams.topMargin = dp(16);
+        root.addView(packsCard, packsCardParams);
+        TextView savedTitle = text(
+            getString(R.string.packs_ready),
+            20,
+            TEXT
+        );
+        savedTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        packsCard.addView(savedTitle);
+        packList = new LinearLayout(this);
+        packList.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams listParams = matchWrap();
+        listParams.topMargin = dp(12);
+        packsCard.addView(packList, listParams);
+
+        setContentView(scroll);
+        refreshMakerQueue();
+    }
+
+    private void buildTelegramInterface(LinearLayout root) {
+        TextView sectionTitle = text(
+            getString(R.string.telegram_title),
+            21,
+            TEXT
+        );
+        sectionTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        LinearLayout.LayoutParams sectionParams = matchWrap();
+        sectionParams.topMargin = dp(22);
+        root.addView(sectionTitle, sectionParams);
+
+        TextView hint = text(
+            getString(R.string.telegram_hint),
+            14,
+            MUTED
+        );
+        LinearLayout.LayoutParams hintParams = matchWrap();
+        hintParams.topMargin = dp(6);
+        root.addView(hint, hintParams);
+
+        addFieldLabel(
+            root,
+            getString(R.string.telegram_link_label),
+            16
+        );
+        LinearLayout linkRow = new LinearLayout(this);
+        linkRow.setOrientation(LinearLayout.HORIZONTAL);
+        linkRow.setGravity(Gravity.CENTER_VERTICAL);
+        telegramLink = new EditText(this);
+        telegramLink.setHint(R.string.telegram_link_hint);
+        telegramLink.setSingleLine(true);
+        styleInput(telegramLink);
+        linkRow.addView(
+            telegramLink,
+            new LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f
+            )
+        );
+        Button pasteLink = addButton(
+            getString(R.string.paste),
+            view -> pasteInto(telegramLink)
+        );
+        LinearLayout.LayoutParams pasteLinkParams = wrapWrap();
+        pasteLinkParams.leftMargin = dp(8);
+        linkRow.addView(pasteLink, pasteLinkParams);
+        root.addView(linkRow, matchWrap());
+
+        TextView linkHelp = text(
+            getString(R.string.telegram_link_help),
+            12,
+            DIM
+        );
+        LinearLayout.LayoutParams linkHelpParams = matchWrap();
+        linkHelpParams.topMargin = dp(6);
+        root.addView(linkHelp, linkHelpParams);
+
+        addFieldLabel(
+            root,
+            getString(R.string.bot_token_label),
+            14
+        );
+        LinearLayout tokenRow = new LinearLayout(this);
+        tokenRow.setOrientation(LinearLayout.HORIZONTAL);
+        tokenRow.setGravity(Gravity.CENTER_VERTICAL);
+        telegramToken = new EditText(this);
+        telegramToken.setHint(R.string.bot_token_hint);
+        telegramToken.setSingleLine(true);
+        telegramToken.setInputType(
+            InputType.TYPE_CLASS_TEXT
+                | InputType.TYPE_TEXT_VARIATION_PASSWORD
+        );
+        telegramToken.setTransformationMethod(
+            PasswordTransformationMethod.getInstance()
+        );
+        styleInput(telegramToken);
+        tokenRow.addView(
+            telegramToken,
+            new LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f
+            )
+        );
+        tokenVisibilityButton = addButton(
+            getString(R.string.show),
+            view -> toggleTokenVisibility()
+        );
+        LinearLayout.LayoutParams visibilityParams = wrapWrap();
+        visibilityParams.leftMargin = dp(8);
+        tokenRow.addView(tokenVisibilityButton, visibilityParams);
+        root.addView(tokenRow, matchWrap());
+
+        TextView tokenHint = text(
+            getString(R.string.bot_token_help),
+            12,
+            DIM
+        );
+        LinearLayout.LayoutParams tokenHintParams = matchWrap();
+        tokenHintParams.topMargin = dp(6);
+        root.addView(tokenHint, tokenHintParams);
+
+        LinearLayout tokenActions = new LinearLayout(this);
+        tokenActions.setOrientation(LinearLayout.HORIZONTAL);
+        Button pasteToken = addButton(
+            getString(R.string.paste),
+            view -> pasteInto(telegramToken)
+        );
+        tokenActions.addView(pasteToken);
+        Button botFather = addButton(
+            getString(R.string.botfather),
+            view -> openBotFather()
+        );
+        LinearLayout.LayoutParams botFatherParams = wrapWrap();
+        botFatherParams.leftMargin = dp(6);
+        tokenActions.addView(botFather, botFatherParams);
+        clearBotTokenButton = addButton(
+            getString(R.string.forget_token),
+            view -> clearTelegramToken()
+        );
+        LinearLayout.LayoutParams clearTokenParams = wrapWrap();
+        clearTokenParams.leftMargin = dp(6);
+        tokenActions.addView(clearBotTokenButton, clearTokenParams);
+        LinearLayout.LayoutParams tokenActionsParams = matchWrap();
+        tokenActionsParams.topMargin = dp(8);
+        root.addView(tokenActions, tokenActionsParams);
+
+        tokenSavedStatus = text("", 13, MINT);
+        tokenSavedStatus.setTypeface(Typeface.DEFAULT_BOLD);
+        tokenSavedStatus.setPadding(
+            dp(12),
+            dp(10),
+            dp(12),
+            dp(10)
+        );
+        tokenSavedStatus.setBackground(rounded(SURFACE_2, 12, LINE));
+        tokenSavedStatus.setVisibility(View.GONE);
+        LinearLayout.LayoutParams savedTokenParams = matchWrap();
+        savedTokenParams.topMargin = dp(8);
+        root.addView(tokenSavedStatus, savedTokenParams);
+
+        addFieldLabel(root, getString(R.string.publisher), 14);
+        telegramPublisher = new EditText(this);
+        telegramPublisher.setHint(R.string.publisher);
+        telegramPublisher.setSingleLine(true);
+        telegramPublisher.setText(R.string.publisher_default);
+        styleInput(telegramPublisher);
+        root.addView(telegramPublisher, matchWrap());
+
+        telegramConvertButton = addButton(
+            getString(R.string.convert_whole_pack),
+            view -> convertTelegramPack()
+        );
+        stylePrimary(telegramConvertButton);
+        LinearLayout.LayoutParams convertParams = matchWrap();
+        convertParams.topMargin = dp(16);
+        root.addView(telegramConvertButton, convertParams);
+        TextView convertDetail = text(
+            getString(R.string.convert_whole_pack_detail),
+            11,
+            DIM
+        );
+        convertDetail.setGravity(Gravity.CENTER_HORIZONTAL);
+        LinearLayout.LayoutParams convertDetailParams = matchWrap();
+        convertDetailParams.topMargin = dp(5);
+        root.addView(convertDetail, convertDetailParams);
 
         telegramProgress = new ProgressBar(
             this,
@@ -317,16 +612,23 @@ public final class MainActivity extends Activity {
         );
         telegramProgress.setMax(100);
         telegramProgress.setVisibility(View.GONE);
-        root.addView(telegramProgress, matchWrap());
+        styleProgress(telegramProgress);
+        LinearLayout.LayoutParams telegramProgressParams = matchWrap();
+        telegramProgressParams.topMargin = dp(10);
+        root.addView(telegramProgress, telegramProgressParams);
 
         telegramStatus = text(
-            "WhatsApp packs will never mix static and animated stickers.",
+            getString(R.string.telegram_initial_status),
             14,
-            Color.rgb(79, 89, 105)
+            MUTED
         );
-        root.addView(telegramStatus, matchWrap());
+        LinearLayout.LayoutParams telegramStatusParams = matchWrap();
+        telegramStatusParams.topMargin = dp(9);
+        root.addView(telegramStatus, telegramStatusParams);
         try {
-            telegramToken.setText(BotTokenStore.load(this));
+            String savedToken = BotTokenStore.load(this);
+            telegramToken.setText(savedToken);
+            updateTokenSavedState(!savedToken.isEmpty());
         } catch (IOException error) {
             telegramStatus.setText(friendly(error));
         }
@@ -339,17 +641,24 @@ public final class MainActivity extends Activity {
             telegramPublisher.getText().toString().trim();
         try {
             TelegramPackLink.shortName(link);
-            if (token.isEmpty()) {
-                throw new IOException("Enter a Telegram Bot Token.");
-            }
+        } catch (IOException error) {
+            telegramStatus.setText(R.string.invalid_telegram_link);
+            return;
+        }
+        if (token.isEmpty()) {
+            telegramStatus.setText(R.string.enter_bot_token);
+            return;
+        }
+        try {
             BotTokenStore.save(this, token);
+            updateTokenSavedState(true);
         } catch (IOException error) {
             telegramStatus.setText(friendly(error));
             return;
         }
         setTelegramBusy(true);
         telegramProgress.setProgress(0);
-        telegramStatus.setText("Starting Telegram conversion...");
+        telegramStatus.setText(R.string.telegram_starting);
         executor.execute(() -> {
             try {
                 TelegramPackConverter.Result result =
@@ -360,22 +669,24 @@ public final class MainActivity extends Activity {
                         publisher,
                         (progress, message) -> mainHandler.post(() -> {
                             telegramProgress.setProgress(progress);
-                            telegramStatus.setText(message);
+                            telegramStatus.setText(
+                                getString(
+                                    R.string.progress_percent,
+                                    progress
+                                )
+                            );
                         })
                     );
                 mainHandler.post(() -> {
                     setTelegramBusy(false);
                     telegramStatus.setText(
-                        "Converted "
-                            + result.source.title
-                            + ": "
-                            + result.staticCount
-                            + " static + "
-                            + result.animatedCount
-                            + " animated stickers into "
-                            + result.packs.size()
-                            + " WhatsApp pack"
-                            + (result.packs.size() == 1 ? "." : "s.")
+                        getString(
+                            R.string.telegram_done,
+                            result.source.title,
+                            result.staticCount,
+                            result.animatedCount,
+                            result.packs.size()
+                        )
                     );
                     refreshPacks();
                 });
@@ -383,7 +694,10 @@ public final class MainActivity extends Activity {
                 mainHandler.post(() -> {
                     setTelegramBusy(false);
                     telegramStatus.setText(
-                        "Telegram conversion failed: " + friendly(error)
+                        getString(
+                            R.string.telegram_failed,
+                            friendly(error)
+                        )
                     );
                 });
             }
@@ -393,9 +707,8 @@ public final class MainActivity extends Activity {
     private void clearTelegramToken() {
         BotTokenStore.clear(this);
         telegramToken.setText("");
-        telegramStatus.setText(
-            "Saved Telegram Bot Token removed from this phone."
-        );
+        updateTokenSavedState(false);
+        telegramStatus.setText(R.string.token_removed);
     }
 
     private void setTelegramBusy(boolean busy) {
@@ -404,46 +717,51 @@ public final class MainActivity extends Activity {
         telegramPublisher.setEnabled(!busy);
         telegramConvertButton.setEnabled(!busy);
         clearBotTokenButton.setEnabled(!busy);
+        tokenVisibilityButton.setEnabled(!busy);
+        telegramConvertButton.setAlpha(busy ? 0.45f : 1f);
         telegramProgress.setVisibility(busy ? View.VISIBLE : View.GONE);
     }
 
     private void buildMakerInterface(LinearLayout root) {
         TextView sectionTitle = text(
-            "Make animated stickers",
-            22,
-            Color.rgb(26, 35, 50)
+            getString(R.string.maker_title),
+            21,
+            TEXT
         );
         sectionTitle.setTypeface(Typeface.DEFAULT_BOLD);
         LinearLayout.LayoutParams sectionParams = matchWrap();
-        sectionParams.topMargin = dp(26);
+        sectionParams.topMargin = dp(22);
         root.addView(sectionTitle, sectionParams);
 
         TextView sectionHint = text(
-            "Choose a video, drag to move, pinch to resize, then render. "
-                + "Each result is added to the on-phone pack queue.",
+            getString(R.string.maker_hint),
             14,
-            Color.rgb(79, 89, 105)
+            MUTED
         );
         LinearLayout.LayoutParams hintParams = matchWrap();
-        hintParams.topMargin = dp(4);
+        hintParams.topMargin = dp(6);
         root.addView(sectionHint, hintParams);
 
-        chooseVideoButton = new Button(this);
-        chooseVideoButton.setText("Choose video");
-        chooseVideoButton.setAllCaps(false);
-        chooseVideoButton.setOnClickListener(view -> pickVideo());
+        chooseVideoButton = addButton(
+            getString(R.string.choose_video),
+            view -> pickVideo()
+        );
+        styleSecondary(chooseVideoButton);
         LinearLayout.LayoutParams chooseParams = matchWrap();
-        chooseParams.topMargin = dp(12);
+        chooseParams.topMargin = dp(16);
         root.addView(chooseVideoButton, chooseParams);
 
         videoInfo = text(
-            "No video selected.",
+            getString(R.string.no_video),
             14,
-            Color.rgb(79, 89, 105)
+            MUTED
         );
-        root.addView(videoInfo);
+        LinearLayout.LayoutParams videoInfoParams = matchWrap();
+        videoInfoParams.topMargin = dp(8);
+        root.addView(videoInfo, videoInfoParams);
 
         videoPreview = new VideoPreviewView(this);
+        videoPreview.setBackground(rounded(FIELD, 16, LINE));
         LinearLayout.LayoutParams previewParams =
             new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -455,7 +773,7 @@ public final class MainActivity extends Activity {
         startSeek = new SeekBar(this);
         startValue = addSeekControl(
             root,
-            "Start time",
+            getString(R.string.start_time),
             startSeek,
             "0.00 s"
         );
@@ -464,7 +782,7 @@ public final class MainActivity extends Activity {
         durationSeek.setProgress(2_800);
         durationValue = addSeekControl(
             root,
-            "Clip duration",
+            getString(R.string.clip_duration),
             durationSeek,
             "3.00 s"
         );
@@ -473,7 +791,7 @@ public final class MainActivity extends Activity {
         scaleSeek.setProgress(75);
         scaleValue = addSeekControl(
             root,
-            "Sticker size",
+            getString(R.string.sticker_size),
             scaleSeek,
             "100%"
         );
@@ -482,38 +800,76 @@ public final class MainActivity extends Activity {
         positionXSeek.setProgress(150);
         positionValue = addSeekControl(
             root,
-            "Horizontal position",
+            getString(R.string.horizontal_position),
             positionXSeek,
-            "X 0% · Y 0%"
+            getString(R.string.position_value, 0, 0)
         );
         positionYSeek = new SeekBar(this);
         positionYSeek.setMax(300);
         positionYSeek.setProgress(150);
         addSeekControl(
             root,
-            "Vertical position",
+            getString(R.string.vertical_position),
             positionYSeek,
             ""
         );
 
         TextView backgroundLabel = text(
-            "Background",
+            getString(R.string.background),
             14,
-            Color.rgb(79, 89, 105)
+            MUTED
         );
         LinearLayout.LayoutParams backgroundLabelParams = matchWrap();
         backgroundLabelParams.topMargin = dp(8);
         root.addView(backgroundLabel, backgroundLabelParams);
         backgroundSpinner = new Spinner(this);
-        ArrayAdapter<String> backgrounds = new ArrayAdapter<>(
+        ArrayAdapter<String> backgrounds = new ArrayAdapter<String>(
             this,
             android.R.layout.simple_spinner_item,
-            new String[] {"Transparent", "Black", "White"}
-        );
+            new String[] {
+                getString(R.string.transparent),
+                getString(R.string.black),
+                getString(R.string.white)
+            }
+        ) {
+            @Override
+            public View getView(
+                int position,
+                View convertView,
+                ViewGroup parent
+            ) {
+                TextView view = (TextView) super.getView(
+                    position,
+                    convertView,
+                    parent
+                );
+                view.setTextColor(TEXT);
+                return view;
+            }
+
+            @Override
+            public View getDropDownView(
+                int position,
+                View convertView,
+                ViewGroup parent
+            ) {
+                TextView view = (TextView) super.getDropDownView(
+                    position,
+                    convertView,
+                    parent
+                );
+                view.setTextColor(TEXT);
+                view.setBackgroundColor(SURFACE_2);
+                view.setPadding(dp(12), dp(10), dp(12), dp(10));
+                return view;
+            }
+        };
         backgrounds.setDropDownViewResource(
             android.R.layout.simple_spinner_dropdown_item
         );
         backgroundSpinner.setAdapter(backgrounds);
+        backgroundSpinner.setPadding(dp(12), dp(4), dp(12), dp(4));
+        backgroundSpinner.setBackground(rounded(FIELD, 13, LINE));
         root.addView(backgroundSpinner, matchWrap());
 
         makerProgress = new ProgressBar(
@@ -523,28 +879,35 @@ public final class MainActivity extends Activity {
         );
         makerProgress.setMax(100);
         makerProgress.setVisibility(View.GONE);
+        styleProgress(makerProgress);
         LinearLayout.LayoutParams progressParams = matchWrap();
         progressParams.topMargin = dp(8);
         root.addView(makerProgress, progressParams);
 
-        renderVideoButton = new Button(this);
-        renderVideoButton.setText("Render and add to pack queue");
-        renderVideoButton.setAllCaps(false);
+        renderVideoButton = addButton(
+            getString(R.string.render_queue),
+            view -> renderSelectedVideo()
+        );
+        stylePrimary(renderVideoButton);
         renderVideoButton.setEnabled(false);
-        renderVideoButton.setOnClickListener(view -> renderSelectedVideo());
-        root.addView(renderVideoButton, matchWrap());
+        renderVideoButton.setAlpha(0.45f);
+        LinearLayout.LayoutParams renderParams = matchWrap();
+        renderParams.topMargin = dp(8);
+        root.addView(renderVideoButton, renderParams);
 
         makerStatus = text(
-            "Output must contain real ANIM/ANMF frames before it is accepted.",
+            getString(R.string.maker_initial_status),
             14,
-            Color.rgb(79, 89, 105)
+            MUTED
         );
-        root.addView(makerStatus, matchWrap());
+        LinearLayout.LayoutParams makerStatusParams = matchWrap();
+        makerStatusParams.topMargin = dp(9);
+        root.addView(makerStatus, makerStatusParams);
 
         makerQueueCount = text(
-            "Pack queue: 0 / 30",
+            getString(R.string.pack_queue, 0),
             18,
-            Color.rgb(26, 35, 50)
+            TEXT
         );
         makerQueueCount.setTypeface(Typeface.DEFAULT_BOLD);
         LinearLayout.LayoutParams queueParams = matchWrap();
@@ -554,43 +917,58 @@ public final class MainActivity extends Activity {
         LinearLayout queueButtons = new LinearLayout(this);
         queueButtons.setOrientation(LinearLayout.HORIZONTAL);
         Button removeLast = addButton(
-            "Remove last",
+            getString(R.string.remove_last),
             view -> removeLastMakerItem()
         );
         Button clear = addButton(
-            "Clear queue",
+            getString(R.string.clear_queue),
             view -> confirmClearMakerQueue()
         );
-        queueButtons.addView(removeLast);
+        queueButtons.addView(
+            removeLast,
+            new LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f
+            )
+        );
         LinearLayout.LayoutParams clearParams =
             new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
+                0,
                 ViewGroup.LayoutParams.WRAP_CONTENT
+                ,
+                1f
             );
         clearParams.leftMargin = dp(6);
         queueButtons.addView(clear, clearParams);
         root.addView(queueButtons, matchWrap());
 
+        addFieldLabel(root, getString(R.string.pack_name), 14);
         makerPackTitle = new EditText(this);
-        makerPackTitle.setHint("Pack name");
+        makerPackTitle.setHint(R.string.pack_name);
         makerPackTitle.setSingleLine(true);
-        makerPackTitle.setText("TGWA Animated Pack");
+        makerPackTitle.setText(R.string.animated_pack_default);
+        styleInput(makerPackTitle);
         root.addView(makerPackTitle, matchWrap());
 
+        addFieldLabel(root, getString(R.string.publisher), 14);
         makerPackPublisher = new EditText(this);
-        makerPackPublisher.setHint("Publisher");
+        makerPackPublisher.setHint(R.string.publisher);
         makerPackPublisher.setSingleLine(true);
-        makerPackPublisher.setText("TGWA Maker");
+        makerPackPublisher.setText(R.string.publisher_default);
+        styleInput(makerPackPublisher);
         root.addView(makerPackPublisher, matchWrap());
 
-        buildMakerPackButton = new Button(this);
-        buildMakerPackButton.setText("Build WhatsApp animated pack");
-        buildMakerPackButton.setAllCaps(false);
-        buildMakerPackButton.setEnabled(false);
-        buildMakerPackButton.setOnClickListener(
+        buildMakerPackButton = addButton(
+            getString(R.string.build_animated_pack),
             view -> buildMakerPack()
         );
-        root.addView(buildMakerPackButton, matchWrap());
+        stylePrimary(buildMakerPackButton);
+        buildMakerPackButton.setEnabled(false);
+        buildMakerPackButton.setAlpha(0.45f);
+        LinearLayout.LayoutParams buildPackParams = matchWrap();
+        buildPackParams.topMargin = dp(14);
+        root.addView(buildMakerPackButton, buildPackParams);
 
         bindMakerControls();
     }
@@ -603,11 +981,11 @@ public final class MainActivity extends Activity {
     ) {
         LinearLayout heading = new LinearLayout(this);
         heading.setOrientation(LinearLayout.HORIZONTAL);
-        TextView name = text(label, 14, Color.rgb(79, 89, 105));
+        TextView name = text(label, 14, MUTED);
         TextView value = text(
             initialValue,
             14,
-            Color.rgb(26, 35, 50)
+            TEXT
         );
         value.setGravity(Gravity.END);
         heading.addView(
@@ -628,6 +1006,11 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams headingParams = matchWrap();
         headingParams.topMargin = dp(8);
         root.addView(heading, headingParams);
+        seek.setProgressTintList(ColorStateList.valueOf(MINT));
+        seek.setThumbTintList(ColorStateList.valueOf(MINT));
+        seek.setProgressBackgroundTintList(
+            ColorStateList.valueOf(LINE)
+        );
         root.addView(seek, matchWrap());
         return value;
     }
@@ -668,6 +1051,9 @@ public final class MainActivity extends Activity {
                     int position,
                     long id
                 ) {
+                    if (view instanceof TextView) {
+                        ((TextView) view).setTextColor(TEXT);
+                    }
                     updateMakerTransform();
                 }
 
@@ -719,13 +1105,18 @@ public final class MainActivity extends Activity {
         durationValue.setText(
             formatSeconds(durationSeek.getProgress() + 200L)
         );
-        scaleValue.setText(Math.round(scale * 100f) + "%");
+        scaleValue.setText(
+            getString(
+                R.string.scale_percent,
+                Math.round(scale * 100f)
+            )
+        );
         positionValue.setText(
-            "X "
-                + Math.round(offsetX * 100f)
-                + "% \u00B7 Y "
-                + Math.round(offsetY * 100f)
-                + "%"
+            getString(
+                R.string.position_value,
+                Math.round(offsetX * 100f),
+                Math.round(offsetY * 100f)
+            )
         );
         videoPreview.setTransform(scale, offsetX, offsetY);
         videoPreview.setPreviewBackground(selectedBackground());
@@ -802,7 +1193,7 @@ public final class MainActivity extends Activity {
         }
         Uri uri = selectedVideoUri;
         setMakerBusy(true);
-        makerStatus.setText("Reading video metadata and first frame...");
+        makerStatus.setText(R.string.reading_video);
         executor.execute(() -> {
             try {
                 VideoStickerRenderer.Probe probe =
@@ -821,26 +1212,30 @@ public final class MainActivity extends Activity {
                     durationSeek.setProgress(durationSeek.getMax());
                     videoPreview.setSource(probe.preview);
                     videoInfo.setText(
-                        probe.width
-                            + " \u00D7 "
-                            + probe.height
-                            + " \u00B7 "
-                            + formatSeconds(probe.durationMs)
+                        getString(
+                            R.string.video_info,
+                            probe.width,
+                            probe.height,
+                            formatSeconds(probe.durationMs)
+                        )
                     );
-                    makerStatus.setText(
-                        "Drag the preview to move it, or pinch to resize."
-                    );
+                    makerStatus.setText(R.string.video_gesture_help);
                     setMakerBusy(false);
                     renderVideoButton.setEnabled(true);
+                    renderVideoButton.setAlpha(1f);
                     updateMakerTransform();
                 });
             } catch (Exception error) {
                 mainHandler.post(() -> {
                     makerStatus.setText(
-                        "Video failed: " + friendly(error)
+                        getString(
+                            R.string.video_failed,
+                            friendly(error)
+                        )
                     );
                     setMakerBusy(false);
                     renderVideoButton.setEnabled(false);
+                    renderVideoButton.setAlpha(0.45f);
                 });
             }
         });
@@ -873,7 +1268,10 @@ public final class MainActivity extends Activity {
             } catch (IOException error) {
                 mainHandler.post(() ->
                     makerStatus.setText(
-                        "Preview failed: " + friendly(error)
+                        getString(
+                            R.string.preview_failed,
+                            friendly(error)
+                        )
                     )
                 );
             }
@@ -882,7 +1280,7 @@ public final class MainActivity extends Activity {
 
     private void renderSelectedVideo() {
         if (selectedVideoUri == null) {
-            makerStatus.setText("Choose a video first.");
+            makerStatus.setText(R.string.choose_video_first);
             return;
         }
         Uri uri = selectedVideoUri;
@@ -896,7 +1294,7 @@ public final class MainActivity extends Activity {
         setMakerBusy(true);
         makerProgress.setProgress(0);
         makerProgress.setVisibility(View.VISIBLE);
-        makerStatus.setText("Starting native Animated WebP encoder...");
+        makerStatus.setText(R.string.encoder_starting);
         executor.execute(() -> {
             try {
                 VideoStickerRenderer.Result result =
@@ -906,22 +1304,25 @@ public final class MainActivity extends Activity {
                         settings,
                         (percent, message) -> mainHandler.post(() -> {
                             makerProgress.setProgress(percent);
-                            makerStatus.setText(message);
+                            makerStatus.setText(
+                                getString(
+                                    R.string.rendering_percent,
+                                    percent
+                                )
+                            );
                         })
                     );
                 MakerQueue.add(this, result.data);
                 mainHandler.post(() -> {
                     makerProgress.setProgress(100);
                     makerStatus.setText(
-                        "Added real Animated WebP \u00B7 "
-                            + result.frameCount
-                            + " frames \u00B7 "
-                            + result.fps
-                            + " FPS \u00B7 Q"
-                            + result.quality
-                            + " \u00B7 "
-                            + result.data.length / 1024
-                            + " KB"
+                        getString(
+                            R.string.render_done,
+                            result.frameCount,
+                            result.fps,
+                            result.quality,
+                            result.data.length / 1024
+                        )
                     );
                     setMakerBusy(false);
                     refreshMakerQueue();
@@ -929,7 +1330,10 @@ public final class MainActivity extends Activity {
             } catch (Exception error) {
                 mainHandler.post(() -> {
                     makerStatus.setText(
-                        "Render failed: " + friendly(error)
+                        getString(
+                            R.string.render_failed,
+                            friendly(error)
+                        )
                     );
                     setMakerBusy(false);
                 });
@@ -940,11 +1344,11 @@ public final class MainActivity extends Activity {
     private void refreshMakerQueue() {
         List<File> items = MakerQueue.list(this);
         makerQueueCount.setText(
-            "Pack queue: " + items.size() + " / 30"
+            getString(R.string.pack_queue, items.size())
         );
-        buildMakerPackButton.setEnabled(
-            items.size() >= 3 && items.size() <= 30
-        );
+        boolean canBuild = items.size() >= 3 && items.size() <= 30;
+        buildMakerPackButton.setEnabled(canBuild);
+        buildMakerPackButton.setAlpha(canBuild ? 1f : 0.45f);
     }
 
     private void removeLastMakerItem() {
@@ -952,13 +1356,16 @@ public final class MainActivity extends Activity {
             try {
                 MakerQueue.removeLast(this);
                 mainHandler.post(() -> {
-                    makerStatus.setText("Removed the last queued sticker.");
+                    makerStatus.setText(R.string.removed_last);
                     refreshMakerQueue();
                 });
             } catch (IOException error) {
                 mainHandler.post(() ->
                     makerStatus.setText(
-                        "Queue update failed: " + friendly(error)
+                        getString(
+                            R.string.queue_failed,
+                            friendly(error)
+                        )
                     )
                 );
             }
@@ -967,24 +1374,24 @@ public final class MainActivity extends Activity {
 
     private void confirmClearMakerQueue() {
         new AlertDialog.Builder(this)
-            .setTitle("Clear maker queue?")
-            .setMessage(
-                "This removes every rendered sticker that has not been built "
-                    + "into a pack."
-            )
-            .setNegativeButton("Cancel", null)
-            .setPositiveButton("Clear", (dialog, which) ->
+            .setTitle(R.string.clear_queue_title)
+            .setMessage(R.string.clear_queue_message)
+            .setNegativeButton(R.string.cancel, null)
+            .setPositiveButton(R.string.clear, (dialog, which) ->
                 executor.execute(() -> {
                     try {
                         MakerQueue.clear(this);
                         mainHandler.post(() -> {
-                            makerStatus.setText("Maker queue cleared.");
+                            makerStatus.setText(R.string.queue_cleared);
                             refreshMakerQueue();
                         });
                     } catch (IOException error) {
                         mainHandler.post(() ->
                             makerStatus.setText(
-                                "Clear failed: " + friendly(error)
+                                getString(
+                                    R.string.clear_failed,
+                                    friendly(error)
+                                )
                             )
                         );
                     }
@@ -996,15 +1403,13 @@ public final class MainActivity extends Activity {
     private void buildMakerPack() {
         List<File> sources = MakerQueue.list(this);
         if (sources.size() < 3 || sources.size() > 30) {
-            makerStatus.setText(
-                "Add 3 to 30 animated stickers before building."
-            );
+            makerStatus.setText(R.string.need_three_stickers);
             return;
         }
         String title = makerPackTitle.getText().toString();
         String publisher = makerPackPublisher.getText().toString();
         setMakerBusy(true);
-        makerStatus.setText("Building and validating animated pack...");
+        makerStatus.setText(R.string.building_pack);
         executor.execute(() -> {
             try {
                 Pack pack = MakerPackBuilder.build(
@@ -1016,11 +1421,11 @@ public final class MainActivity extends Activity {
                 MakerQueue.clear(this);
                 mainHandler.post(() -> {
                     makerStatus.setText(
-                        "Built "
-                            + pack.name
-                            + " with "
-                            + pack.stickers.size()
-                            + " animated stickers."
+                        getString(
+                            R.string.pack_built,
+                            pack.name,
+                            pack.stickers.size()
+                        )
                     );
                     setMakerBusy(false);
                     refreshMakerQueue();
@@ -1029,7 +1434,10 @@ public final class MainActivity extends Activity {
             } catch (Exception error) {
                 mainHandler.post(() -> {
                     makerStatus.setText(
-                        "Pack build failed: " + friendly(error)
+                        getString(
+                            R.string.pack_build_failed,
+                            friendly(error)
+                        )
                     );
                     setMakerBusy(false);
                 });
@@ -1048,6 +1456,9 @@ public final class MainActivity extends Activity {
         makerPackTitle.setEnabled(!busy);
         makerPackPublisher.setEnabled(!busy);
         renderVideoButton.setEnabled(!busy && selectedVideoUri != null);
+        renderVideoButton.setAlpha(
+            !busy && selectedVideoUri != null ? 1f : 0.45f
+        );
         if (!busy) {
             refreshMakerQueue();
             makerProgress.setVisibility(View.GONE);
@@ -1129,9 +1540,8 @@ public final class MainActivity extends Activity {
         try {
             TelegramPackLink.shortName(value);
             telegramLink.setText(value.trim());
-            telegramStatus.setText(
-                "Telegram pack link received. Press Convert whole pack."
-            );
+            telegramStatus.setText(R.string.telegram_link_received);
+            showTab(0);
             return true;
         } catch (IOException ignored) {
             return false;
@@ -1140,7 +1550,7 @@ public final class MainActivity extends Activity {
 
     private void importArchive(Uri uri) {
         importButton.setEnabled(false);
-        status.setText("Importing and validating...");
+        status.setText(R.string.importing);
         executor.execute(() -> {
             try {
                 List<Pack> importedPacks = PackImporter.importUri(this, uri);
@@ -1148,15 +1558,17 @@ public final class MainActivity extends Activity {
                     importButton.setEnabled(true);
                     if (importedPacks.size() == 1) {
                         status.setText(
-                            "Imported "
-                                + importedPacks.get(0).name
-                                + " successfully."
+                            getString(
+                                R.string.imported_one,
+                                importedPacks.get(0).name
+                            )
                         );
                     } else {
                         status.setText(
-                            "Imported and separated into "
-                                + importedPacks.size()
-                                + " valid packs."
+                            getString(
+                                R.string.imported_many,
+                                importedPacks.size()
+                            )
                         );
                     }
                     refreshPacks();
@@ -1164,7 +1576,12 @@ public final class MainActivity extends Activity {
             } catch (Exception error) {
                 mainHandler.post(() -> {
                     importButton.setEnabled(true);
-                    status.setText("Import failed: " + friendly(error));
+                    status.setText(
+                        getString(
+                            R.string.import_failed,
+                            friendly(error)
+                        )
+                    );
                 });
             }
         });
@@ -1175,10 +1592,9 @@ public final class MainActivity extends Activity {
         packList.removeAllViews();
         if (packs.isEmpty()) {
             TextView empty = text(
-                "No packs yet. Convert a Telegram pack or make one above, "
-                    + "or open a desktop .wastickers file with TGWA Maker.",
+                getString(R.string.no_packs),
                 15,
-                Color.rgb(105, 113, 126)
+                MUTED
             );
             packList.addView(empty);
             return;
@@ -1192,30 +1608,28 @@ public final class MainActivity extends Activity {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(16), dp(14), dp(16), dp(14));
-        android.graphics.drawable.GradientDrawable background =
-            new android.graphics.drawable.GradientDrawable();
-        background.setColor(Color.WHITE);
-        background.setCornerRadius(dp(14));
-        background.setStroke(dp(1), Color.rgb(220, 225, 232));
-        card.setBackground(background);
+        card.setBackground(rounded(SURFACE_2, 16, LINE));
 
-        TextView name = text(pack.name, 18, Color.rgb(26, 35, 50));
+        TextView name = text(pack.name, 18, TEXT);
         name.setTypeface(Typeface.DEFAULT_BOLD);
         card.addView(name);
-        String kind = pack.animated ? "animated" : "static";
+        String kind = getString(
+            pack.animated ? R.string.animated : R.string.static_kind
+        );
         TextView details = text(
-            pack.stickers.size()
-                + " "
-                + kind
-                + " stickers \u00B7 "
-                + pack.publisher,
+            getString(
+                R.string.pack_details,
+                pack.stickers.size(),
+                kind,
+                pack.publisher
+            ),
             14,
-            Color.rgb(79, 89, 105)
+            MUTED
         );
         card.addView(details);
 
         LinearLayout buttons = new LinearLayout(this);
-        buttons.setOrientation(LinearLayout.HORIZONTAL);
+        buttons.setOrientation(LinearLayout.VERTICAL);
         buttons.setGravity(Gravity.START);
         LinearLayout.LayoutParams buttonsParams = matchWrap();
         buttonsParams.topMargin = dp(10);
@@ -1223,12 +1637,17 @@ public final class MainActivity extends Activity {
 
         if (isInstalled(WHATSAPP)) {
             if (WhitelistCheck.isWhitelisted(this, pack, WHATSAPP)) {
-                buttons.addView(addedLabel("Added to WhatsApp"));
+                buttons.addView(
+                    addedLabel(getString(R.string.added_whatsapp)),
+                    matchWrap()
+                );
             } else {
-                buttons.addView(addButton(
-                    "Add to WhatsApp",
+                Button addWhatsapp = addButton(
+                    getString(R.string.add_whatsapp),
                     view -> enablePack(pack, WHATSAPP)
-                ));
+                );
+                stylePrimary(addWhatsapp);
+                buttons.addView(addWhatsapp, matchWrap());
             }
         }
         if (isInstalled(WHATSAPP_BUSINESS)) {
@@ -1237,17 +1656,13 @@ public final class MainActivity extends Activity {
                 pack,
                 WHATSAPP_BUSINESS
             )
-                ? addedLabel("Added to Business")
+                ? addedLabel(getString(R.string.added_business))
                 : addButton(
-                    "Add to Business",
+                    getString(R.string.add_business),
                     view -> enablePack(pack, WHATSAPP_BUSINESS)
                 );
-            LinearLayout.LayoutParams businessParams =
-                new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                );
-            businessParams.leftMargin = dp(6);
+            LinearLayout.LayoutParams businessParams = matchWrap();
+            businessParams.topMargin = dp(7);
             buttons.addView(business, businessParams);
         }
         if (
@@ -1255,23 +1670,20 @@ public final class MainActivity extends Activity {
             && !isInstalled(WHATSAPP_BUSINESS)
         ) {
             TextView missing = text(
-                "WhatsApp is not installed.",
+                getString(R.string.whatsapp_missing),
                 14,
-                Color.rgb(170, 60, 60)
+                DANGER
             );
-            buttons.addView(missing);
+            buttons.addView(missing, matchWrap());
         }
 
         Button delete = addButton(
-            "Delete",
+            getString(R.string.delete),
             view -> confirmDelete(pack)
         );
-        LinearLayout.LayoutParams deleteParams =
-            new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            );
-        deleteParams.leftMargin = dp(6);
+        styleDanger(delete);
+        LinearLayout.LayoutParams deleteParams = matchWrap();
+        deleteParams.topMargin = dp(7);
         buttons.addView(delete, deleteParams);
 
         LinearLayout.LayoutParams cardParams = matchWrap();
@@ -1280,21 +1692,296 @@ public final class MainActivity extends Activity {
         return card;
     }
 
+    private void buildHandlesCard(LinearLayout root) {
+        LinearLayout handles = card();
+        LinearLayout.LayoutParams handlesParams = matchWrap();
+        handlesParams.topMargin = dp(16);
+        root.addView(handles, handlesParams);
+
+        TextView eyebrow = text(
+            getString(R.string.handles_eyebrow),
+            11,
+            MINT
+        );
+        eyebrow.setTypeface(Typeface.DEFAULT_BOLD);
+        eyebrow.setLetterSpacing(0.09f);
+        handles.addView(eyebrow);
+        TextView title = text(
+            getString(R.string.handles_title),
+            22,
+            TEXT
+        );
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        LinearLayout.LayoutParams titleParams = matchWrap();
+        titleParams.topMargin = dp(6);
+        handles.addView(title, titleParams);
+
+        addHandleRow(handles, getString(R.string.handles_static));
+        addHandleRow(handles, getString(R.string.handles_animated));
+        addHandleRow(handles, getString(R.string.handles_split));
+        addHandleRow(handles, getString(R.string.handles_limits));
+
+        LinearLayout privacy = new LinearLayout(this);
+        privacy.setOrientation(LinearLayout.VERTICAL);
+        privacy.setPadding(dp(14), dp(12), dp(14), dp(12));
+        privacy.setBackground(rounded(FIELD, 14, LINE));
+        LinearLayout.LayoutParams privacyParams = matchWrap();
+        privacyParams.topMargin = dp(16);
+        handles.addView(privacy, privacyParams);
+        TextView privacyTitle = text(
+            getString(R.string.privacy_title),
+            11,
+            MINT
+        );
+        privacyTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        privacyTitle.setLetterSpacing(0.08f);
+        privacy.addView(privacyTitle);
+        TextView privacyDetail = text(
+            getString(R.string.privacy_detail),
+            13,
+            MUTED
+        );
+        LinearLayout.LayoutParams detailParams = matchWrap();
+        detailParams.topMargin = dp(5);
+        privacy.addView(privacyDetail, detailParams);
+    }
+
+    private void addHandleRow(LinearLayout root, String value) {
+        TextView row = text("✓  " + value, 14, TEXT);
+        LinearLayout.LayoutParams rowParams = matchWrap();
+        rowParams.topMargin = dp(10);
+        root.addView(row, rowParams);
+    }
+
+    private void showTab(int tab) {
+        selectedTab = tab == 1 ? 1 : 0;
+        if (telegramPanel == null || makerPanel == null) {
+            return;
+        }
+        telegramPanel.setVisibility(
+            selectedTab == 0 ? View.VISIBLE : View.GONE
+        );
+        makerPanel.setVisibility(
+            selectedTab == 1 ? View.VISIBLE : View.GONE
+        );
+        styleTab(telegramTabButton, selectedTab == 0);
+        styleTab(videoTabButton, selectedTab == 1);
+    }
+
+    private void restoreInterfaceState(Bundle state) {
+        if (state == null) {
+            return;
+        }
+        telegramLink.setText(state.getString(STATE_LINK, ""));
+        telegramToken.setText(
+            state.getString(STATE_TOKEN, valueOf(telegramToken))
+        );
+        telegramPublisher.setText(
+            state.getString(
+                STATE_TG_PUBLISHER,
+                getString(R.string.publisher_default)
+            )
+        );
+        makerPackTitle.setText(
+            state.getString(
+                STATE_MAKER_TITLE,
+                getString(R.string.animated_pack_default)
+            )
+        );
+        makerPackPublisher.setText(
+            state.getString(
+                STATE_MAKER_PUBLISHER,
+                getString(R.string.publisher_default)
+            )
+        );
+        showTab(state.getInt(STATE_SELECTED_TAB, 0));
+        String video = state.getString(STATE_VIDEO, "");
+        if (!video.isEmpty()) {
+            selectedVideoUri = Uri.parse(video);
+            loadSelectedVideo();
+        }
+    }
+
+    private void pasteInto(EditText target) {
+        ClipboardManager clipboard =
+            (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        if (
+            clipboard == null
+            || !clipboard.hasPrimaryClip()
+            || clipboard.getPrimaryClip() == null
+        ) {
+            return;
+        }
+        ClipData clip = clipboard.getPrimaryClip();
+        if (clip == null || clip.getItemCount() == 0) {
+            return;
+        }
+        CharSequence value = clip.getItemAt(0).coerceToText(this);
+        if (value != null) {
+            target.setText(value.toString().trim());
+            target.setSelection(target.length());
+        }
+    }
+
+    private void toggleTokenVisibility() {
+        tokenVisible = !tokenVisible;
+        telegramToken.setTransformationMethod(
+            tokenVisible
+                ? HideReturnsTransformationMethod.getInstance()
+                : PasswordTransformationMethod.getInstance()
+        );
+        tokenVisibilityButton.setText(
+            tokenVisible ? R.string.hide : R.string.show
+        );
+        telegramToken.setSelection(telegramToken.length());
+    }
+
+    private void updateTokenSavedState(boolean saved) {
+        if (tokenSavedStatus == null) {
+            return;
+        }
+        tokenSavedStatus.setText(
+            R.string.token_saved_message
+        );
+        tokenSavedStatus.setVisibility(saved ? View.VISIBLE : View.GONE);
+    }
+
+    private void openBotFather() {
+        try {
+            startActivity(
+                new Intent(
+                    Intent.ACTION_VIEW,
+                    Uri.parse("https://t.me/BotFather")
+                )
+            );
+        } catch (ActivityNotFoundException error) {
+            Toast.makeText(
+                this,
+                getString(R.string.botfather),
+                Toast.LENGTH_SHORT
+            ).show();
+        }
+    }
+
+    private LinearLayout card() {
+        LinearLayout value = new LinearLayout(this);
+        value.setOrientation(LinearLayout.VERTICAL);
+        value.setPadding(dp(18), dp(18), dp(18), dp(18));
+        value.setBackground(rounded(SURFACE, 24, LINE));
+        return value;
+    }
+
+    private GradientDrawable rounded(
+        int fill,
+        int radiusDp,
+        int stroke
+    ) {
+        GradientDrawable value = new GradientDrawable();
+        value.setColor(fill);
+        value.setCornerRadius(dp(radiusDp));
+        if (stroke != fill) {
+            value.setStroke(dp(1), stroke);
+        }
+        return value;
+    }
+
+    private void addFieldLabel(
+        LinearLayout root,
+        String label,
+        int topMargin
+    ) {
+        TextView value = text(label, 13, MUTED);
+        value.setTypeface(Typeface.DEFAULT_BOLD);
+        LinearLayout.LayoutParams params = matchWrap();
+        params.topMargin = dp(topMargin);
+        params.bottomMargin = dp(6);
+        root.addView(value, params);
+    }
+
+    private void styleInput(EditText input) {
+        input.setTextColor(TEXT);
+        input.setHintTextColor(DIM);
+        input.setTextSize(15);
+        input.setSelectAllOnFocus(false);
+        input.setMinHeight(dp(52));
+        input.setBackground(rounded(FIELD, 13, LINE));
+        input.setPadding(dp(13), dp(10), dp(13), dp(10));
+    }
+
+    private void styleProgress(ProgressBar progress) {
+        progress.setProgressTintList(ColorStateList.valueOf(MINT));
+        progress.setProgressBackgroundTintList(
+            ColorStateList.valueOf(LINE)
+        );
+    }
+
+    private void stylePrimary(Button button) {
+        styleButton(button);
+        button.setTextColor(INK);
+        button.setTypeface(Typeface.DEFAULT_BOLD);
+        button.setBackground(rounded(MINT_STRONG, 14, MINT_STRONG));
+        button.setMinHeight(dp(54));
+    }
+
+    private void styleSecondary(Button button) {
+        styleButton(button);
+        button.setTextColor(TEXT);
+        button.setBackground(rounded(SURFACE_2, 12, LINE));
+    }
+
+    private void styleDanger(Button button) {
+        styleButton(button);
+        button.setTextColor(DANGER);
+        button.setBackground(rounded(FIELD, 12, DANGER));
+    }
+
+    private void styleChip(Button button) {
+        styleButton(button);
+        button.setTextColor(MINT);
+        button.setBackground(rounded(SURFACE_2, 999, LINE));
+        button.setPadding(dp(12), dp(7), dp(12), dp(7));
+    }
+
+    private void styleTab(Button button, boolean selected) {
+        styleButton(button);
+        button.setTextSize(12);
+        button.setTypeface(
+            selected ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT
+        );
+        button.setTextColor(selected ? INK : MUTED);
+        button.setBackground(
+            rounded(
+                selected ? MINT : FIELD,
+                12,
+                selected ? MINT : FIELD
+            )
+        );
+    }
+
+    private void styleButton(Button button) {
+        button.setAllCaps(false);
+        button.setTextSize(14);
+        button.setGravity(Gravity.CENTER);
+        button.setMinHeight(dp(42));
+        button.setMinimumHeight(0);
+        button.setMinWidth(0);
+        button.setMinimumWidth(0);
+        button.setPadding(dp(13), dp(9), dp(13), dp(9));
+    }
+
     private Button addButton(String label, View.OnClickListener listener) {
         Button button = new Button(this);
         button.setText(label);
-        button.setAllCaps(false);
-        button.setMinHeight(0);
-        button.setMinimumHeight(0);
-        button.setPadding(dp(12), dp(8), dp(12), dp(8));
         button.setOnClickListener(listener);
+        styleSecondary(button);
         return button;
     }
 
     private TextView addedLabel(String label) {
-        TextView value = text(label, 14, Color.rgb(28, 130, 82));
+        TextView value = text(label, 14, MINT);
         value.setGravity(Gravity.CENTER_VERTICAL);
-        value.setPadding(dp(8), dp(8), dp(8), dp(8));
+        value.setPadding(dp(10), dp(10), dp(10), dp(10));
+        value.setBackground(rounded(FIELD, 12, LINE));
         return value;
     }
 
@@ -1314,7 +2001,7 @@ public final class MainActivity extends Activity {
         } catch (ActivityNotFoundException error) {
             Toast.makeText(
                 this,
-                "WhatsApp could not open this sticker pack.",
+                getString(R.string.whatsapp_open_failed),
                 Toast.LENGTH_LONG
             ).show();
         }
@@ -1322,24 +2009,26 @@ public final class MainActivity extends Activity {
 
     private void confirmDelete(Pack pack) {
         new AlertDialog.Builder(this)
-            .setTitle("Delete " + pack.name + "?")
-            .setMessage(
-                "This removes the imported copy from TGWA Maker. "
-                    + "A pack already added to WhatsApp is not removed."
-            )
-            .setNegativeButton("Cancel", null)
-            .setPositiveButton("Delete", (dialog, which) -> {
+            .setTitle(getString(R.string.delete_title, pack.name))
+            .setMessage(R.string.delete_message)
+            .setNegativeButton(R.string.cancel, null)
+            .setPositiveButton(R.string.delete, (dialog, which) -> {
                 executor.execute(() -> {
                     try {
                         PackStore.delete(this, pack.identifier);
                         mainHandler.post(() -> {
-                            status.setText("Deleted " + pack.name + ".");
+                            status.setText(
+                                getString(R.string.deleted, pack.name)
+                            );
                             refreshPacks();
                         });
                     } catch (IOException error) {
                         mainHandler.post(() ->
                             status.setText(
-                                "Delete failed: " + friendly(error)
+                                getString(
+                                    R.string.delete_failed,
+                                    friendly(error)
+                                )
                             )
                         );
                     }
@@ -1372,6 +2061,17 @@ public final class MainActivity extends Activity {
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT
         );
+    }
+
+    private LinearLayout.LayoutParams wrapWrap() {
+        return new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        );
+    }
+
+    private static String valueOf(EditText input) {
+        return input == null ? "" : input.getText().toString();
     }
 
     private int dp(int value) {

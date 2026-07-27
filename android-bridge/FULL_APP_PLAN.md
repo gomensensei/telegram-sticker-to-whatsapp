@@ -15,6 +15,14 @@
 - WhatsApp and WhatsApp Business handoff
 - strict pre-handoff WebP structure, duration, dimensions, and size checks
 
+## Completed in 2.1
+
+- desktop-matched dark green card layout
+- Telegram and video maker tabbed workflow
+- English and Traditional Chinese (Hong Kong) in-app language switch
+- secure Token paste, reveal/hide, saved status, forget, and BotFather actions
+- state preservation across language changes
+
 ## Non-negotiable output contract
 
 The app never exposes an animated pack to WhatsApp unless every sticker:
