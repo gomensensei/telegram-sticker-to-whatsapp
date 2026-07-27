@@ -47,6 +47,14 @@
 - frame-index and timestamp compatibility fallbacks retained
 - explicit sequential-decoder diagnostics when every device path fails
 
+## Completed in 2.1.4
+
+- crop-relative and plane-relative YUV origin detection
+- safe odd-width and odd-height chroma edge sampling
+- compatibility with vendor buffers that omit final chroma padding bytes
+- detailed frame format, crop, stride, position, and limit diagnostics
+- regression coverage for the real 479 × 512 Telegram WEBM dimensions
+
 ## Non-negotiable output contract
 
 The app never exposes an animated pack to WhatsApp unless every sticker:

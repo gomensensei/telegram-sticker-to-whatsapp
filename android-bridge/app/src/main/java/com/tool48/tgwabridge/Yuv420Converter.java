@@ -8,53 +8,222 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 
 final class Yuv420Converter {
+    private static final class PlaneData {
+        final ByteBuffer buffer;
+        final int rowStride;
+        final int pixelStride;
+
+        PlaneData(
+            ByteBuffer buffer,
+            int rowStride,
+            int pixelStride
+        ) {
+            this.buffer = buffer;
+            this.rowStride = rowStride;
+            this.pixelStride = pixelStride;
+        }
+    }
+
+    private static final class PlaneReader {
+        final ByteBuffer buffer;
+        final int base;
+        final int limit;
+        final int rowStride;
+        final int pixelStride;
+
+        PlaneReader(
+            ByteBuffer source,
+            int rowStride,
+            int pixelStride,
+            boolean useBufferPosition
+        ) {
+            if (
+                source == null
+                || rowStride <= 0
+                || pixelStride <= 0
+            ) {
+                throw new IllegalArgumentException(
+                    "YUV plane buffer or strides are invalid."
+                );
+            }
+            buffer = source.duplicate();
+            base = useBufferPosition ? buffer.position() : 0;
+            limit = buffer.limit();
+            this.rowStride = rowStride;
+            this.pixelStride = pixelStride;
+            if (base < 0 || base >= limit) {
+                throw new IllegalArgumentException(
+                    "YUV plane contains no readable samples."
+                );
+            }
+        }
+
+        long overflow(int row, int column) {
+            long index = base
+                + (long) Math.max(0, row) * rowStride
+                + (long) Math.max(0, column) * pixelStride;
+            return Math.max(0L, index - (limit - 1L));
+        }
+
+        int sample(int row, int column) {
+            int safeRow = Math.max(0, row);
+            int maxRow = Math.max(
+                0,
+                (limit - 1 - base) / rowStride
+            );
+            safeRow = Math.min(safeRow, maxRow);
+            int rowStart = base + safeRow * rowStride;
+            int maxColumn = Math.max(
+                0,
+                (limit - 1 - rowStart) / pixelStride
+            );
+            int safeColumn = Math.min(
+                Math.max(0, column),
+                maxColumn
+            );
+            return (
+                buffer.get(
+                    rowStart + safeColumn * pixelStride
+                ) & 0xff
+            );
+        }
+    }
+
+    private static final class Layout {
+        final PlaneReader y;
+        final PlaneReader u;
+        final PlaneReader v;
+        final int left;
+        final int top;
+        final long overflow;
+
+        Layout(
+            PlaneData[] planes,
+            int left,
+            int top,
+            int width,
+            int height,
+            boolean useBufferPosition
+        ) {
+            y = reader(planes[0], useBufferPosition);
+            u = reader(planes[1], useBufferPosition);
+            v = reader(planes[2], useBufferPosition);
+            this.left = left;
+            this.top = top;
+            int lastX = left + width - 1;
+            int lastY = top + height - 1;
+            overflow = y.overflow(lastY, lastX)
+                + u.overflow(lastY / 2, lastX / 2)
+                + v.overflow(lastY / 2, lastX / 2);
+        }
+
+        private static PlaneReader reader(
+            PlaneData plane,
+            boolean useBufferPosition
+        ) {
+            return new PlaneReader(
+                plane.buffer,
+                plane.rowStride,
+                plane.pixelStride,
+                useBufferPosition
+            );
+        }
+    }
+
     private Yuv420Converter() {
     }
 
     static Bitmap toBitmap(Image image) throws IOException {
-        Image.Plane[] planes = image.getPlanes();
-        if (planes == null || planes.length < 3) {
-            throw new IOException(
-                "Android decoder did not return a YUV video frame."
-            );
-        }
-        Rect crop = image.getCropRect();
-        int width = crop.width();
-        int height = crop.height();
-        if (width <= 0 || height <= 0) {
-            throw new IOException(
-                "Android decoder returned an empty video frame."
-            );
-        }
-        int[] pixels;
         try {
-            pixels = toArgb(
+            Image.Plane[] planes = image.getPlanes();
+            if (planes == null || planes.length < 3) {
+                throw new IOException(
+                    "Android decoder did not return three YUV planes. "
+                        + describe(image)
+                );
+            }
+            Rect crop = image.getCropRect();
+            int width = crop.width();
+            int height = crop.height();
+            if (width <= 0 || height <= 0) {
+                throw new IOException(
+                    "Android decoder returned an empty video frame. "
+                        + describe(image)
+                );
+            }
+            int[] pixels = toArgb(
                 width,
                 height,
                 crop.left,
                 crop.top,
-                planes[0].getBuffer(),
-                planes[0].getRowStride(),
-                planes[0].getPixelStride(),
-                planes[1].getBuffer(),
-                planes[1].getRowStride(),
-                planes[1].getPixelStride(),
-                planes[2].getBuffer(),
-                planes[2].getRowStride(),
-                planes[2].getPixelStride()
+                new PlaneData[] {
+                    data(planes[0]),
+                    data(planes[1]),
+                    data(planes[2])
+                }
             );
+            return Bitmap.createBitmap(
+                pixels,
+                width,
+                height,
+                Bitmap.Config.ARGB_8888
+            );
+        } catch (IOException error) {
+            throw error;
         } catch (RuntimeException error) {
             throw new IOException(
-                "Android returned an unsupported YUV frame layout.",
+                "Android returned an unsupported YUV frame layout ("
+                    + error.getClass().getSimpleName()
+                    + ": "
+                    + friendly(error)
+                    + "). "
+                    + describe(image),
                 error
             );
         }
-        return Bitmap.createBitmap(
-            pixels,
+    }
+
+    private static int[] toArgb(
+        int width,
+        int height,
+        int cropLeft,
+        int cropTop,
+        PlaneData[] planes
+    ) {
+        if (
+            width <= 0
+            || height <= 0
+            || cropLeft < 0
+            || cropTop < 0
+            || planes == null
+            || planes.length < 3
+        ) {
+            throw new IllegalArgumentException(
+                "YUV frame dimensions or planes are invalid."
+            );
+        }
+        Layout layout = chooseLayout(
+            planes,
             width,
             height,
-            Bitmap.Config.ARGB_8888
+            cropLeft,
+            cropTop
         );
+        int[] pixels = new int[width * height];
+        for (int row = 0; row < height; row++) {
+            int sourceY = layout.top + row;
+            int uvRow = sourceY / 2;
+            for (int column = 0; column < width; column++) {
+                int sourceX = layout.left + column;
+                int uvColumn = sourceX / 2;
+                pixels[row * width + column] = toColor(
+                    layout.y.sample(sourceY, sourceX),
+                    layout.u.sample(uvRow, uvColumn),
+                    layout.v.sample(uvRow, uvColumn)
+                );
+            }
+        }
+        return pixels;
     }
 
     static int[] toArgb(
@@ -72,52 +241,72 @@ final class Yuv420Converter {
         int vRowStride,
         int vPixelStride
     ) {
-        if (
-            width <= 0
-            || height <= 0
-            || cropLeft < 0
-            || cropTop < 0
-            || yPixelStride <= 0
-            || uPixelStride <= 0
-            || vPixelStride <= 0
-        ) {
-            throw new IllegalArgumentException(
-                "YUV frame dimensions or strides are invalid."
-            );
-        }
-        ByteBuffer y = yBuffer.duplicate();
-        ByteBuffer u = uBuffer.duplicate();
-        ByteBuffer v = vBuffer.duplicate();
-        int yBase = y.position();
-        int uBase = u.position();
-        int vBase = v.position();
-        int[] pixels = new int[width * height];
-        for (int row = 0; row < height; row++) {
-            int sourceY = cropTop + row;
-            int yRow = yBase + sourceY * yRowStride;
-            int uvRow = (cropTop + row) / 2;
-            int uRow = uBase + uvRow * uRowStride;
-            int vRow = vBase + uvRow * vRowStride;
-            for (int column = 0; column < width; column++) {
-                int sourceX = cropLeft + column;
-                int yValue = (
-                    y.get(yRow + sourceX * yPixelStride) & 0xff
-                );
-                int uvColumn = sourceX / 2;
-                int uValue = (
-                    u.get(uRow + uvColumn * uPixelStride) & 0xff
-                );
-                int vValue = (
-                    v.get(vRow + uvColumn * vPixelStride) & 0xff
-                );
-                pixels[row * width + column] = toColor(
-                    yValue,
-                    uValue,
-                    vValue
-                );
+        PlaneData[] planes = {
+            new PlaneData(yBuffer, yRowStride, yPixelStride),
+            new PlaneData(uBuffer, uRowStride, uPixelStride),
+            new PlaneData(vBuffer, vRowStride, vPixelStride)
+        };
+        return toArgb(
+            width,
+            height,
+            cropLeft,
+            cropTop,
+            planes
+        );
+    }
+
+    private static Layout chooseLayout(
+        PlaneData[] planes,
+        int width,
+        int height,
+        int cropLeft,
+        int cropTop
+    ) {
+        int[][] origins = {
+            {cropLeft, cropTop},
+            {0, 0}
+        };
+        Layout best = null;
+        for (boolean usePosition : new boolean[] {true, false}) {
+            for (int[] origin : origins) {
+                Layout candidate;
+                try {
+                    candidate = new Layout(
+                        planes,
+                        origin[0],
+                        origin[1],
+                        width,
+                        height,
+                        usePosition
+                    );
+                } catch (IllegalArgumentException ignored) {
+                    continue;
+                }
+                if (
+                    best == null
+                    || candidate.overflow < best.overflow
+                ) {
+                    best = candidate;
+                }
+                if (candidate.overflow == 0) {
+                    return candidate;
+                }
             }
         }
-        return pixels;
+        if (best == null) {
+            throw new IllegalArgumentException(
+                "No readable YUV plane layout was found."
+            );
+        }
+        return best;
+    }
+
+    private static PlaneData data(Image.Plane plane) {
+        return new PlaneData(
+            plane.getBuffer(),
+            plane.getRowStride(),
+            plane.getPixelStride()
+        );
     }
 
     private static int toColor(int y, int u, int v) {
@@ -145,4 +334,52 @@ final class Yuv420Converter {
     private static int clamp(int value) {
         return Math.max(0, Math.min(255, value));
     }
+
+    private static String describe(Image image) {
+        try {
+            StringBuilder result = new StringBuilder();
+            Rect crop = image.getCropRect();
+            result.append("format=")
+                .append(image.getFormat())
+                .append(", image=")
+                .append(image.getWidth())
+                .append('x')
+                .append(image.getHeight())
+                .append(", crop=")
+                .append(crop.left)
+                .append(',')
+                .append(crop.top)
+                .append('-')
+                .append(crop.right)
+                .append(',')
+                .append(crop.bottom);
+            Image.Plane[] planes = image.getPlanes();
+            result.append(", planes=").append(planes.length);
+            for (int index = 0; index < planes.length; index++) {
+                ByteBuffer buffer = planes[index].getBuffer();
+                result.append(" [")
+                    .append(index)
+                    .append(":row=")
+                    .append(planes[index].getRowStride())
+                    .append(",pixel=")
+                    .append(planes[index].getPixelStride())
+                    .append(",position=")
+                    .append(buffer.position())
+                    .append(",limit=")
+                    .append(buffer.limit())
+                    .append(']');
+            }
+            return result.toString();
+        } catch (RuntimeException ignored) {
+            return "frame diagnostics unavailable";
+        }
+    }
+
+    private static String friendly(Throwable error) {
+        String message = error.getMessage();
+        return message == null || message.trim().isEmpty()
+            ? "no detail"
+            : message.trim();
+    }
+
 }

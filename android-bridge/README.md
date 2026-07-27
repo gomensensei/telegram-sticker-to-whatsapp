@@ -1,6 +1,6 @@
 # TGWA Maker Android
 
-TGWA Maker 2.1.3 is an on-phone Telegram/WhatsApp sticker converter and video
+TGWA Maker 2.1.4 is an on-phone Telegram/WhatsApp sticker converter and video
 sticker maker.
 
 ## Features
@@ -30,6 +30,9 @@ sticker maker.
   `MediaExtractor + MediaCodec`, selects frames by their real presentation
   timestamps, and converts flexible YUV output with its reported row and pixel
   strides. Indexed and timestamp retrieval remain compatibility fallbacks.
+- Detects crop-relative and already-cropped plane origins and safely reuses the
+  final valid chroma sample when a vendor decoder truncates the last chroma
+  row or column of an odd-sized frame.
 
 Animated output is accepted only when it contains `ANIM` and at least two
 `ANMF` chunks, is exactly 512 × 512, has frame durations of at least 8 ms,
