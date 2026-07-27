@@ -9,10 +9,19 @@ import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.media.MediaMetadataRetriever;
 import android.net.Uri;
+import android.os.Build;
 
 import java.io.IOException;
+import java.util.List;
 
 final class VideoStickerRenderer {
+    private static final class NonAnimatedDecodeException
+        extends IOException {
+        NonAnimatedDecodeException(String message) {
+            super(message);
+        }
+    }
+
     interface ProgressListener {
         void onProgress(int percent, String message);
     }
@@ -175,6 +184,9 @@ final class VideoStickerRenderer {
                 );
             } catch (IOException error) {
                 lastError = error;
+                if (error instanceof NonAnimatedDecodeException) {
+                    throw error;
+                }
             }
         }
         throw new IOException(
@@ -197,10 +209,180 @@ final class VideoStickerRenderer {
         ProgressListener listener,
         int profileIndex
     ) throws IOException {
-        int frameCount = Math.max(
-            2,
-            (int) Math.ceil(settings.durationMs * fps / 1_000.0)
-        );
+        IOException indexedError = null;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            try {
+                Result indexed = encodeByFrameIndex(
+                    context,
+                    uri,
+                    settings,
+                    fps,
+                    quality,
+                    listener,
+                    profileIndex
+                );
+                requireMultiFrame(indexed);
+                return indexed;
+            } catch (IOException error) {
+                indexedError = error;
+            }
+        }
+        try {
+            Result timed = encodeByTimestamp(
+                context,
+                uri,
+                settings,
+                fps,
+                quality,
+                listener,
+                profileIndex
+            );
+            requireMultiFrame(timed);
+            return timed;
+        } catch (IOException error) {
+            if (indexedError != null) {
+                error.addSuppressed(indexedError);
+            }
+            throw error;
+        }
+    }
+
+    @android.annotation.TargetApi(Build.VERSION_CODES.P)
+    private static Result encodeByFrameIndex(
+        Context context,
+        Uri uri,
+        VideoStickerSettings settings,
+        int fps,
+        int quality,
+        ProgressListener listener,
+        int profileIndex
+    ) throws IOException {
+        int outputFrameCount = outputFrameCount(settings, fps);
+        MediaMetadataRetriever retriever = retriever(context, uri);
+        try (
+            NativeWebpEncoder encoder = new NativeWebpEncoder(
+                SIZE,
+                SIZE,
+                quality
+            )
+        ) {
+            long sourceDurationMs = parseLong(
+                retriever.extractMetadata(
+                    MediaMetadataRetriever.METADATA_KEY_DURATION
+                ),
+                0
+            );
+            int sourceFrameCount = (int) parseLong(
+                retriever.extractMetadata(
+                    MediaMetadataRetriever.METADATA_KEY_VIDEO_FRAME_COUNT
+                ),
+                0
+            );
+            int[] sourceIndexes = FrameSamplingPlan.sourceIndexes(
+                sourceDurationMs,
+                sourceFrameCount,
+                settings.startMs,
+                settings.durationMs,
+                outputFrameCount
+            );
+            int outputIndex = 0;
+            while (outputIndex < outputFrameCount) {
+                int batchStart = sourceIndexes[outputIndex];
+                int batchCount = Math.min(
+                    8,
+                    sourceFrameCount - batchStart
+                );
+                List<Bitmap> batch;
+                try {
+                    batch = retriever.getFramesAtIndex(
+                        batchStart,
+                        batchCount
+                    );
+                } catch (RuntimeException error) {
+                    throw new IOException(
+                        "Android indexed WEBM decoding failed: "
+                            + friendly(error),
+                        error
+                    );
+                }
+                if (batch == null || batch.isEmpty()) {
+                    throw new IOException(
+                        "Android returned no indexed WEBM frames."
+                    );
+                }
+                int before = outputIndex;
+                try {
+                    while (outputIndex < outputFrameCount) {
+                        int localIndex =
+                            sourceIndexes[outputIndex] - batchStart;
+                        if (localIndex < 0 || localIndex >= batch.size()) {
+                            break;
+                        }
+                        Bitmap source = batch.get(localIndex);
+                        if (source == null || source.isRecycled()) {
+                            throw new IOException(
+                                "Android returned an empty indexed WEBM "
+                                    + "frame."
+                            );
+                        }
+                        addOutputFrame(
+                            encoder,
+                            source,
+                            settings,
+                            outputIndex,
+                            outputFrameCount,
+                            listener,
+                            profileIndex
+                        );
+                        outputIndex++;
+                    }
+                } finally {
+                    for (Bitmap frame : batch) {
+                        if (frame != null && !frame.isRecycled()) {
+                            frame.recycle();
+                        }
+                    }
+                }
+                if (outputIndex == before) {
+                    throw new IOException(
+                        "Android indexed WEBM decoding did not advance."
+                    );
+                }
+            }
+            byte[] data = encoder.finish((int) settings.durationMs);
+            return new Result(
+                data,
+                fps,
+                quality,
+                outputFrameCount,
+                settings.durationMs
+            );
+        } catch (IllegalArgumentException error) {
+            throw new IOException(
+                "Android cannot map WEBM frame indexes: "
+                    + friendly(error),
+                error
+            );
+        } catch (RuntimeException error) {
+            throw new IOException(
+                "Indexed video encoding failed: " + friendly(error),
+                error
+            );
+        } finally {
+            retriever.release();
+        }
+    }
+
+    private static Result encodeByTimestamp(
+        Context context,
+        Uri uri,
+        VideoStickerSettings settings,
+        int fps,
+        int quality,
+        ProgressListener listener,
+        int profileIndex
+    ) throws IOException {
+        int frameCount = outputFrameCount(settings, fps);
         MediaMetadataRetriever retriever = retriever(context, uri);
         try (
             NativeWebpEncoder encoder = new NativeWebpEncoder(
@@ -224,35 +406,18 @@ final class VideoStickerRenderer {
                             + "."
                     );
                 }
-                Bitmap frame = compose(source, settings);
-                source.recycle();
-                int timestampMs = (int) (
-                    frameIndex * settings.durationMs / frameCount
-                );
                 try {
-                    encoder.addFrame(frame, timestampMs);
-                } finally {
-                    frame.recycle();
-                }
-                if (listener != null) {
-                    int profileBase = profileIndex * 100 / PROFILES.length;
-                    int profileRange = 100 / PROFILES.length;
-                    listener.onProgress(
-                        Math.min(
-                            99,
-                            profileBase
-                                + (
-                                    (frameIndex + 1)
-                                    * profileRange
-                                    / frameCount
-                                )
-                        ),
-                        "Rendered frame "
-                            + (frameIndex + 1)
-                            + " of "
-                            + frameCount
-                            + "."
+                    addOutputFrame(
+                        encoder,
+                        source,
+                        settings,
+                        frameIndex,
+                        frameCount,
+                        listener,
+                        profileIndex
                     );
+                } finally {
+                    source.recycle();
                 }
             }
             byte[] data = encoder.finish((int) settings.durationMs);
@@ -270,6 +435,67 @@ final class VideoStickerRenderer {
             );
         } finally {
             retriever.release();
+        }
+    }
+
+    private static int outputFrameCount(
+        VideoStickerSettings settings,
+        int fps
+    ) {
+        return Math.max(
+            2,
+            (int) Math.ceil(settings.durationMs * fps / 1_000.0)
+        );
+    }
+
+    private static void addOutputFrame(
+        NativeWebpEncoder encoder,
+        Bitmap source,
+        VideoStickerSettings settings,
+        int frameIndex,
+        int frameCount,
+        ProgressListener listener,
+        int profileIndex
+    ) throws IOException {
+        Bitmap frame = compose(source, settings);
+        int timestampMs = (int) (
+            frameIndex * settings.durationMs / frameCount
+        );
+        try {
+            encoder.addFrame(frame, timestampMs);
+        } finally {
+            frame.recycle();
+        }
+        if (listener != null) {
+            int profileBase = profileIndex * 100 / PROFILES.length;
+            int profileRange = 100 / PROFILES.length;
+            listener.onProgress(
+                Math.min(
+                    99,
+                    profileBase
+                        + (
+                            (frameIndex + 1)
+                            * profileRange
+                            / frameCount
+                        )
+                ),
+                "Rendered frame "
+                    + (frameIndex + 1)
+                    + " of "
+                    + frameCount
+                    + "."
+            );
+        }
+    }
+
+    private static void requireMultiFrame(Result result)
+        throws IOException {
+        WebpInspector.Result animation = WebpInspector.inspect(result.data);
+        if (!animation.animated || animation.frameCount < 2) {
+            throw new NonAnimatedDecodeException(
+                "Android decoded only one unique video frame. This device "
+                    + "could not expose the Telegram WEBM animation frames."
+            );
         }
     }
 

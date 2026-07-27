@@ -30,6 +30,14 @@
 - automatic WhatsApp handoff after conversion
 - sequential multi-Part WhatsApp handoff after each official confirmation
 
+## Completed in 2.1.2
+
+- frame-indexed Telegram VP9 WEBM decoding on Android 9+
+- bounded eight-frame decode batches to control memory
+- timestamp-seek fallback for older or incompatible devices
+- regression coverage for 61-frame single-keyframe Telegram WEBM sampling
+- explicit non-animation decode errors instead of a misleading 500 KB error
+
 ## Non-negotiable output contract
 
 The app never exposes an animated pack to WhatsApp unless every sticker:
