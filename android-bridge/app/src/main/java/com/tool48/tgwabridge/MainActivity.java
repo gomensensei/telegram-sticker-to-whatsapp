@@ -26,6 +26,7 @@ import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
@@ -85,27 +86,35 @@ public final class MainActivity extends Activity {
     private Button telegramConvertButton;
     private Button clearBotTokenButton;
     private Button tokenVisibilityButton;
+    private Button customizeTokenButton;
     private Button telegramTabButton;
     private Button videoTabButton;
     private Button packTabButton;
     private Button languageButton;
     private Button chooseVideoButton;
     private Button renderVideoButton;
+    private Button previewClipButton;
+    private Button previewFinalButton;
     private Button buildMakerPackButton;
     private VideoPreviewView videoPreview;
     private TextView videoInfo;
     private TextView makerStatus;
     private TextView makerQueueCount;
     private TextView startValue;
-    private TextView durationValue;
+    private TextView endValue;
+    private TextView selectionRange;
+    private TextView adjustedDuration;
     private TextView scaleValue;
     private TextView positionValue;
     private SeekBar startSeek;
-    private SeekBar durationSeek;
+    private SeekBar endSeek;
     private SeekBar scaleSeek;
     private SeekBar positionXSeek;
     private SeekBar positionYSeek;
     private Spinner backgroundSpinner;
+    private Spinner speedSpinner;
+    private ImageView startThumbnail;
+    private ImageView endThumbnail;
     private ProgressBar makerProgress;
     private EditText makerPackTitle;
     private EditText makerPackPublisher;
@@ -118,14 +127,30 @@ public final class MainActivity extends Activity {
     private TextView telegramProgressStage;
     private TextView telegramProgressValue;
     private LinearLayout telegramProgressPanel;
+    private LinearLayout tokenCustomizationPanel;
     private LinearLayout telegramPanel;
     private LinearLayout makerPanel;
     private LinearLayout packPanel;
     private Uri selectedVideoUri;
     private long selectedVideoDurationMs;
     private int previewGeneration;
+    private int thumbnailGeneration;
     private int selectedTab;
     private boolean tokenVisible;
+    private boolean tokenCustomizationVisible;
+    private boolean adjustingTrimControls;
+    private Bitmap startThumbnailBitmap;
+    private Bitmap endThumbnailBitmap;
+    private final Runnable thumbnailRefresh = this::requestTrimThumbnails;
+    private static final float[] PLAYBACK_SPEEDS = {
+        0.125f,
+        0.25f,
+        0.5f,
+        1f,
+        2f,
+        4f,
+        8f
+    };
     private final ArrayList<String> pendingAutoAddPackIds =
         new ArrayList<>();
     private boolean autoAddingPacks;
@@ -187,6 +212,8 @@ public final class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        mainHandler.removeCallbacks(thumbnailRefresh);
+        recycleThumbnailBitmaps();
         executor.shutdownNow();
         super.onDestroy();
     }
@@ -208,6 +235,7 @@ public final class MainActivity extends Activity {
             Uri uri = data.getData();
             takeReadPermission(uri, data);
             selectedVideoUri = uri;
+            selectedVideoDurationMs = 0;
             loadSelectedVideo();
             return;
         }
@@ -570,8 +598,20 @@ public final class MainActivity extends Activity {
         linkHelpParams.topMargin = dp(6);
         root.addView(linkHelp, linkHelpParams);
 
+        customizeTokenButton = addButton(
+            getString(R.string.customize_token_api),
+            view -> toggleTokenCustomization()
+        );
+        styleSecondary(customizeTokenButton);
+        LinearLayout.LayoutParams customizeParams = matchWrap();
+        customizeParams.topMargin = dp(14);
+        root.addView(customizeTokenButton, customizeParams);
+
+        tokenCustomizationPanel = new LinearLayout(this);
+        tokenCustomizationPanel.setOrientation(LinearLayout.VERTICAL);
+        tokenCustomizationPanel.setVisibility(View.GONE);
         addFieldLabel(
-            root,
+            tokenCustomizationPanel,
             getString(R.string.bot_token_label),
             14
         );
@@ -604,7 +644,7 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams visibilityParams = wrapWrap();
         visibilityParams.leftMargin = dp(8);
         tokenRow.addView(tokenVisibilityButton, visibilityParams);
-        root.addView(tokenRow, matchWrap());
+        tokenCustomizationPanel.addView(tokenRow, matchWrap());
 
         TextView tokenHint = text(
             getString(R.string.bot_token_help),
@@ -613,7 +653,7 @@ public final class MainActivity extends Activity {
         );
         LinearLayout.LayoutParams tokenHintParams = matchWrap();
         tokenHintParams.topMargin = dp(6);
-        root.addView(tokenHint, tokenHintParams);
+        tokenCustomizationPanel.addView(tokenHint, tokenHintParams);
 
         LinearLayout tokenActions = new LinearLayout(this);
         tokenActions.setOrientation(LinearLayout.HORIZONTAL);
@@ -638,7 +678,8 @@ public final class MainActivity extends Activity {
         tokenActions.addView(clearBotTokenButton, clearTokenParams);
         LinearLayout.LayoutParams tokenActionsParams = matchWrap();
         tokenActionsParams.topMargin = dp(8);
-        root.addView(tokenActions, tokenActionsParams);
+        tokenCustomizationPanel.addView(tokenActions, tokenActionsParams);
+        root.addView(tokenCustomizationPanel, matchWrap());
 
         tokenSavedStatus = text("", 13, MINT);
         tokenSavedStatus.setTypeface(Typeface.DEFAULT_BOLD);
@@ -649,7 +690,7 @@ public final class MainActivity extends Activity {
             dp(10)
         );
         tokenSavedStatus.setBackground(rounded(SURFACE_2, 12, LINE));
-        tokenSavedStatus.setVisibility(View.GONE);
+        tokenSavedStatus.setVisibility(View.VISIBLE);
         LinearLayout.LayoutParams savedTokenParams = matchWrap();
         savedTokenParams.topMargin = dp(8);
         root.addView(tokenSavedStatus, savedTokenParams);
@@ -759,7 +800,10 @@ public final class MainActivity extends Activity {
 
     private void convertTelegramPack() {
         String link = telegramLink.getText().toString().trim();
-        String token = telegramToken.getText().toString().trim();
+        String customToken = telegramToken.getText().toString().trim();
+        String token = customToken.isEmpty()
+            ? DefaultBotCredential.value()
+            : customToken;
         String publisher =
             telegramPublisher.getText().toString().trim();
         try {
@@ -778,13 +822,18 @@ public final class MainActivity extends Activity {
             );
             return;
         }
-        try {
-            BotTokenStore.save(this, token);
-            updateTokenSavedState(true);
-        } catch (IOException error) {
-            telegramStatus.setText(friendly(error));
-            showTelegramProgressError(friendly(error));
-            return;
+        if (!customToken.isEmpty()) {
+            try {
+                BotTokenStore.save(this, customToken);
+                updateTokenSavedState(true);
+            } catch (IOException error) {
+                telegramStatus.setText(friendly(error));
+                showTelegramProgressError(friendly(error));
+                return;
+            }
+        } else {
+            BotTokenStore.clear(this);
+            updateTokenSavedState(false);
         }
         setTelegramBusy(true);
         telegramStatus.setText(R.string.telegram_starting);
@@ -892,7 +941,11 @@ public final class MainActivity extends Activity {
         BotTokenStore.clear(this);
         telegramToken.setText("");
         updateTokenSavedState(false);
-        telegramStatus.setText(R.string.token_removed);
+        telegramStatus.setText(
+            DefaultBotCredential.available()
+                ? R.string.token_reverted_to_builtin
+                : R.string.token_removed
+        );
     }
 
     private void setTelegramBusy(boolean busy) {
@@ -902,6 +955,7 @@ public final class MainActivity extends Activity {
         telegramConvertButton.setEnabled(!busy);
         clearBotTokenButton.setEnabled(!busy);
         tokenVisibilityButton.setEnabled(!busy);
+        customizeTokenButton.setEnabled(!busy);
         languageButton.setEnabled(!busy);
         languageButton.setAlpha(busy ? 0.45f : 1f);
         telegramConvertButton.setAlpha(busy ? 0.45f : 1f);
@@ -1164,17 +1218,90 @@ public final class MainActivity extends Activity {
             root,
             getString(R.string.start_time),
             startSeek,
-            "0.00 s"
+            "00:00.000"
         );
-        durationSeek = new SeekBar(this);
-        durationSeek.setMax(2_800);
-        durationSeek.setProgress(2_800);
-        durationValue = addSeekControl(
+        endSeek = new SeekBar(this);
+        endSeek.setMax(3_000);
+        endSeek.setProgress(3_000);
+        endValue = addSeekControl(
             root,
-            getString(R.string.clip_duration),
-            durationSeek,
-            "3.00 s"
+            getString(R.string.end_time),
+            endSeek,
+            "00:03.000"
         );
+
+        LinearLayout thumbnails = new LinearLayout(this);
+        thumbnails.setOrientation(LinearLayout.HORIZONTAL);
+        startThumbnail = addTrimThumbnail(
+            thumbnails,
+            getString(R.string.start_frame)
+        );
+        endThumbnail = addTrimThumbnail(
+            thumbnails,
+            getString(R.string.end_frame)
+        );
+        LinearLayout.LayoutParams thumbnailsParams = matchWrap();
+        thumbnailsParams.topMargin = dp(8);
+        root.addView(thumbnails, thumbnailsParams);
+
+        selectionRange = text(
+            getString(
+                R.string.selected_range,
+                "00:00.000",
+                "00:03.000"
+            ),
+            14,
+            TEXT
+        );
+        selectionRange.setTypeface(Typeface.DEFAULT_BOLD);
+        selectionRange.setGravity(Gravity.CENTER_HORIZONTAL);
+        selectionRange.setPadding(dp(10), dp(10), dp(10), dp(10));
+        selectionRange.setBackground(rounded(SURFACE_2, 12, LINE));
+        LinearLayout.LayoutParams rangeParams = matchWrap();
+        rangeParams.topMargin = dp(8);
+        root.addView(selectionRange, rangeParams);
+
+        previewClipButton = addButton(
+            getString(R.string.preview_selected_segment),
+            view -> previewSelectedVideo(false)
+        );
+        styleSecondary(previewClipButton);
+        previewClipButton.setEnabled(false);
+        previewClipButton.setAlpha(0.45f);
+        LinearLayout.LayoutParams clipPreviewParams = matchWrap();
+        clipPreviewParams.topMargin = dp(8);
+        root.addView(previewClipButton, clipPreviewParams);
+
+        TextView speedLabel = text(
+            getString(R.string.playback_speed),
+            14,
+            MUTED
+        );
+        LinearLayout.LayoutParams speedLabelParams = matchWrap();
+        speedLabelParams.topMargin = dp(12);
+        root.addView(speedLabel, speedLabelParams);
+        speedSpinner = new Spinner(this);
+        ArrayAdapter<String> speeds = darkSpinnerAdapter(
+            new String[] {
+                getString(R.string.speed_eighth),
+                getString(R.string.speed_quarter),
+                getString(R.string.speed_half),
+                getString(R.string.speed_normal),
+                getString(R.string.speed_double),
+                getString(R.string.speed_quadruple),
+                getString(R.string.speed_octuple)
+            }
+        );
+        speedSpinner.setAdapter(speeds);
+        speedSpinner.setSelection(3);
+        speedSpinner.setPadding(dp(12), dp(4), dp(12), dp(4));
+        speedSpinner.setBackground(rounded(FIELD, 13, LINE));
+        root.addView(speedSpinner, matchWrap());
+        adjustedDuration = text("", 13, MUTED);
+        LinearLayout.LayoutParams adjustedParams = matchWrap();
+        adjustedParams.topMargin = dp(6);
+        root.addView(adjustedDuration, adjustedParams);
+
         scaleSeek = new SeekBar(this);
         scaleSeek.setMax(375);
         scaleSeek.setProgress(75);
@@ -1260,6 +1387,17 @@ public final class MainActivity extends Activity {
         backgroundSpinner.setPadding(dp(12), dp(4), dp(12), dp(4));
         backgroundSpinner.setBackground(rounded(FIELD, 13, LINE));
         root.addView(backgroundSpinner, matchWrap());
+
+        previewFinalButton = addButton(
+            getString(R.string.preview_final_result),
+            view -> previewSelectedVideo(true)
+        );
+        styleSecondary(previewFinalButton);
+        previewFinalButton.setEnabled(false);
+        previewFinalButton.setAlpha(0.45f);
+        LinearLayout.LayoutParams finalPreviewParams = matchWrap();
+        finalPreviewParams.topMargin = dp(10);
+        root.addView(previewFinalButton, finalPreviewParams);
 
         makerProgress = new ProgressBar(
             this,
@@ -1404,6 +1542,82 @@ public final class MainActivity extends Activity {
         return value;
     }
 
+    private ImageView addTrimThumbnail(
+        LinearLayout row,
+        String label
+    ) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(7), dp(7), dp(7), dp(7));
+        card.setBackground(rounded(SURFACE_2, 13, LINE));
+        TextView title = text(label, 12, MUTED);
+        title.setGravity(Gravity.CENTER_HORIZONTAL);
+        card.addView(title, matchWrap());
+        ImageView image = new ImageView(this);
+        image.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        image.setBackgroundColor(FIELD);
+        LinearLayout.LayoutParams imageParams = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            dp(112)
+        );
+        imageParams.topMargin = dp(6);
+        card.addView(image, imageParams);
+        LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(
+            0,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            1f
+        );
+        if (row.getChildCount() > 0) {
+            cardParams.leftMargin = dp(8);
+        }
+        row.addView(card, cardParams);
+        return image;
+    }
+
+    private ArrayAdapter<String> darkSpinnerAdapter(String[] items) {
+        ArrayAdapter<String> adapter = new ArrayAdapter<String>(
+            this,
+            android.R.layout.simple_spinner_item,
+            items
+        ) {
+            @Override
+            public View getView(
+                int position,
+                View convertView,
+                ViewGroup parent
+            ) {
+                TextView view = (TextView) super.getView(
+                    position,
+                    convertView,
+                    parent
+                );
+                view.setTextColor(TEXT);
+                return view;
+            }
+
+            @Override
+            public View getDropDownView(
+                int position,
+                View convertView,
+                ViewGroup parent
+            ) {
+                TextView view = (TextView) super.getDropDownView(
+                    position,
+                    convertView,
+                    parent
+                );
+                view.setTextColor(TEXT);
+                view.setBackgroundColor(SURFACE_2);
+                view.setPadding(dp(12), dp(10), dp(12), dp(10));
+                return view;
+            }
+        };
+        adapter.setDropDownViewResource(
+            android.R.layout.simple_spinner_dropdown_item
+        );
+        return adapter;
+    }
+
     private void bindMakerControls() {
         startSeek.setOnSeekBarChangeListener(
             new SeekBar.OnSeekBarChangeListener() {
@@ -1413,8 +1627,9 @@ public final class MainActivity extends Activity {
                     int progress,
                     boolean fromUser
                 ) {
-                    updateDurationLimit();
+                    constrainTrimSelection();
                     updateMakerTransform();
+                    scheduleTrimThumbnailRefresh();
                 }
 
                 @Override
@@ -1424,10 +1639,33 @@ public final class MainActivity extends Activity {
                 @Override
                 public void onStopTrackingTouch(SeekBar seekBar) {
                     requestPreviewFrame();
+                    requestTrimThumbnails();
                 }
             }
         );
-        durationSeek.setOnSeekBarChangeListener(simpleSeekListener());
+        endSeek.setOnSeekBarChangeListener(
+            new SeekBar.OnSeekBarChangeListener() {
+                @Override
+                public void onProgressChanged(
+                    SeekBar seekBar,
+                    int progress,
+                    boolean fromUser
+                ) {
+                    constrainTrimSelection();
+                    updateMakerTransform();
+                    scheduleTrimThumbnailRefresh();
+                }
+
+                @Override
+                public void onStartTrackingTouch(SeekBar seekBar) {
+                }
+
+                @Override
+                public void onStopTrackingTouch(SeekBar seekBar) {
+                    requestTrimThumbnails();
+                }
+            }
+        );
         scaleSeek.setOnSeekBarChangeListener(simpleSeekListener());
         positionXSeek.setOnSeekBarChangeListener(simpleSeekListener());
         positionYSeek.setOnSeekBarChangeListener(simpleSeekListener());
@@ -1444,6 +1682,28 @@ public final class MainActivity extends Activity {
                         ((TextView) view).setTextColor(TEXT);
                     }
                     updateMakerTransform();
+                }
+
+                @Override
+                public void onNothingSelected(AdapterView<?> parent) {
+                }
+            }
+        );
+        speedSpinner.setOnItemSelectedListener(
+            new AdapterView.OnItemSelectedListener() {
+                @Override
+                public void onItemSelected(
+                    AdapterView<?> parent,
+                    View view,
+                    int position,
+                    long id
+                ) {
+                    if (view instanceof TextView) {
+                        ((TextView) view).setTextColor(TEXT);
+                    }
+                    constrainTrimSelection();
+                    updateMakerTransform();
+                    scheduleTrimThumbnailRefresh();
                 }
 
                 @Override
@@ -1490,9 +1750,25 @@ public final class MainActivity extends Activity {
         float scale = (scaleSeek.getProgress() + 25) / 100f;
         float offsetX = (positionXSeek.getProgress() - 150) / 100f;
         float offsetY = (positionYSeek.getProgress() - 150) / 100f;
-        startValue.setText(formatSeconds(startSeek.getProgress()));
-        durationValue.setText(
-            formatSeconds(durationSeek.getProgress() + 200L)
+        long startMs = startSeek.getProgress();
+        long endMs = Math.max(startMs, endSeek.getProgress());
+        long sourceDurationMs = Math.max(0, endMs - startMs);
+        float speed = selectedPlaybackSpeed();
+        startValue.setText(formatTimestamp(startMs));
+        endValue.setText(formatTimestamp(endMs));
+        selectionRange.setText(
+            getString(
+                R.string.selected_range,
+                formatTimestamp(startMs),
+                formatTimestamp(endMs)
+            )
+        );
+        adjustedDuration.setText(
+            getString(
+                R.string.adjusted_duration,
+                formatTimestamp(Math.round(sourceDurationMs / speed)),
+                speedLabel(speed)
+            )
         );
         scaleValue.setText(
             getString(
@@ -1511,25 +1787,67 @@ public final class MainActivity extends Activity {
         videoPreview.setPreviewBackground(selectedBackground());
     }
 
-    private void updateDurationLimit() {
+    private void constrainTrimSelection() {
+        if (adjustingTrimControls || selectedVideoDurationMs <= 0) {
+            return;
+        }
+        adjustingTrimControls = true;
+        try {
+            float speed = selectedPlaybackSpeed();
+            int minimumDuration = Math.max(1, (int) Math.ceil(200 * speed));
+            int maximumDuration = Math.max(
+                minimumDuration,
+                (int) Math.floor(3_000 * speed)
+            );
+            int videoDuration = (int) Math.min(
+                Integer.MAX_VALUE,
+                selectedVideoDurationMs
+            );
+            startSeek.setMax(Math.max(0, videoDuration - minimumDuration));
+            int start = Math.min(startSeek.getProgress(), startSeek.getMax());
+            if (startSeek.getProgress() != start) {
+                startSeek.setProgress(start);
+            }
+            endSeek.setMax(videoDuration);
+            int minimumEnd = Math.min(videoDuration, start + minimumDuration);
+            int maximumEnd = Math.min(videoDuration, start + maximumDuration);
+            int end = Math.max(minimumEnd, endSeek.getProgress());
+            end = Math.min(maximumEnd, end);
+            if (endSeek.getProgress() != end) {
+                endSeek.setProgress(end);
+            }
+        } finally {
+            adjustingTrimControls = false;
+        }
+    }
+
+    private float selectedPlaybackSpeed() {
+        if (speedSpinner == null) {
+            return 1f;
+        }
+        int position = Math.max(
+            0,
+            Math.min(
+                PLAYBACK_SPEEDS.length - 1,
+                speedSpinner.getSelectedItemPosition()
+            )
+        );
+        return PLAYBACK_SPEEDS[position];
+    }
+
+    private void scheduleTrimThumbnailRefresh() {
         if (selectedVideoDurationMs <= 0) {
             return;
         }
-        int maximumDuration = (int) Math.min(
-            3_000,
-            selectedVideoDurationMs - startSeek.getProgress()
-        );
-        maximumDuration = Math.max(200, maximumDuration);
-        durationSeek.setMax(maximumDuration - 200);
-        if (durationSeek.getProgress() > durationSeek.getMax()) {
-            durationSeek.setProgress(durationSeek.getMax());
-        }
+        mainHandler.removeCallbacks(thumbnailRefresh);
+        mainHandler.postDelayed(thumbnailRefresh, 180);
     }
 
     private VideoStickerSettings currentMakerSettings() {
         return new VideoStickerSettings(
             startSeek.getProgress(),
-            durationSeek.getProgress() + 200L,
+            endSeek.getProgress() - startSeek.getProgress(),
+            selectedPlaybackSpeed(),
             (scaleSeek.getProgress() + 25) / 100f,
             (positionXSeek.getProgress() - 150) / 100f,
             (positionYSeek.getProgress() - 150) / 100f,
@@ -1593,12 +1911,14 @@ public final class MainActivity extends Activity {
                         return;
                     }
                     selectedVideoDurationMs = probe.durationMs;
-                    startSeek.setMax(
-                        (int) Math.max(0, probe.durationMs - 200)
-                    );
                     startSeek.setProgress(0);
-                    updateDurationLimit();
-                    durationSeek.setProgress(durationSeek.getMax());
+                    endSeek.setMax(
+                        (int) Math.min(Integer.MAX_VALUE, probe.durationMs)
+                    );
+                    endSeek.setProgress(
+                        (int) Math.min(3_000, probe.durationMs)
+                    );
+                    constrainTrimSelection();
                     videoPreview.setSource(probe.preview);
                     videoInfo.setText(
                         getString(
@@ -1613,6 +1933,7 @@ public final class MainActivity extends Activity {
                     renderVideoButton.setEnabled(true);
                     renderVideoButton.setAlpha(1f);
                     updateMakerTransform();
+                    requestTrimThumbnails();
                 });
             } catch (Exception error) {
                 mainHandler.post(() -> {
@@ -1665,6 +1986,110 @@ public final class MainActivity extends Activity {
                 );
             }
         });
+    }
+
+    private void requestTrimThumbnails() {
+        mainHandler.removeCallbacks(thumbnailRefresh);
+        if (selectedVideoUri == null || selectedVideoDurationMs <= 0) {
+            return;
+        }
+        Uri uri = selectedVideoUri;
+        long startMs = startSeek.getProgress();
+        long endMs = Math.max(startMs, endSeek.getProgress() - 1L);
+        int generation = ++thumbnailGeneration;
+        executor.execute(() -> {
+            Bitmap startFrame = null;
+            Bitmap endFrame = null;
+            try {
+                startFrame = VideoStickerRenderer.previewAt(
+                    this,
+                    uri,
+                    startMs
+                );
+                endFrame = VideoStickerRenderer.previewAt(
+                    this,
+                    uri,
+                    endMs
+                );
+                Bitmap readyStart = startFrame;
+                Bitmap readyEnd = endFrame;
+                mainHandler.post(() -> {
+                    if (
+                        generation != thumbnailGeneration
+                        || !uri.equals(selectedVideoUri)
+                    ) {
+                        readyStart.recycle();
+                        readyEnd.recycle();
+                        return;
+                    }
+                    replaceTrimThumbnails(readyStart, readyEnd);
+                });
+            } catch (IOException error) {
+                if (startFrame != null && !startFrame.isRecycled()) {
+                    startFrame.recycle();
+                }
+                if (endFrame != null && !endFrame.isRecycled()) {
+                    endFrame.recycle();
+                }
+                mainHandler.post(() -> makerStatus.setText(
+                    getString(
+                        R.string.preview_failed,
+                        friendly(error)
+                    )
+                ));
+            }
+        });
+    }
+
+    private void replaceTrimThumbnails(Bitmap start, Bitmap end) {
+        recycleThumbnailBitmaps();
+        startThumbnailBitmap = start;
+        endThumbnailBitmap = end;
+        startThumbnail.setImageBitmap(start);
+        endThumbnail.setImageBitmap(end);
+    }
+
+    private void recycleThumbnailBitmaps() {
+        if (
+            startThumbnailBitmap != null
+            && !startThumbnailBitmap.isRecycled()
+        ) {
+            startThumbnailBitmap.recycle();
+        }
+        if (
+            endThumbnailBitmap != null
+            && endThumbnailBitmap != startThumbnailBitmap
+            && !endThumbnailBitmap.isRecycled()
+        ) {
+            endThumbnailBitmap.recycle();
+        }
+        startThumbnailBitmap = null;
+        endThumbnailBitmap = null;
+    }
+
+    private void previewSelectedVideo(boolean finalPreview) {
+        if (selectedVideoUri == null) {
+            makerStatus.setText(R.string.choose_video_first);
+            return;
+        }
+        VideoStickerSettings settings;
+        try {
+            settings = currentMakerSettings();
+        } catch (IllegalArgumentException error) {
+            makerStatus.setText(error.getMessage());
+            return;
+        }
+        VideoSegmentPreviewDialog.show(
+            this,
+            selectedVideoUri,
+            settings,
+            finalPreview ? settings.playbackSpeed : 1f,
+            getString(
+                finalPreview
+                    ? R.string.preview_final_title
+                    : R.string.preview_segment_title
+            )
+        );
     }
 
     private void renderSelectedVideo() {
@@ -1835,18 +2260,25 @@ public final class MainActivity extends Activity {
     }
 
     private void setMakerBusy(boolean busy) {
+        boolean videoReady = selectedVideoUri != null
+            && selectedVideoDurationMs >= 200;
         chooseVideoButton.setEnabled(!busy);
         startSeek.setEnabled(!busy);
-        durationSeek.setEnabled(!busy);
+        endSeek.setEnabled(!busy);
+        speedSpinner.setEnabled(!busy);
         scaleSeek.setEnabled(!busy);
         positionXSeek.setEnabled(!busy);
         positionYSeek.setEnabled(!busy);
         backgroundSpinner.setEnabled(!busy);
+        previewClipButton.setEnabled(!busy && videoReady);
+        previewClipButton.setAlpha(!busy && videoReady ? 1f : 0.45f);
+        previewFinalButton.setEnabled(!busy && videoReady);
+        previewFinalButton.setAlpha(!busy && videoReady ? 1f : 0.45f);
         makerPackTitle.setEnabled(!busy);
         makerPackPublisher.setEnabled(!busy);
-        renderVideoButton.setEnabled(!busy && selectedVideoUri != null);
+        renderVideoButton.setEnabled(!busy && videoReady);
         renderVideoButton.setAlpha(
-            !busy && selectedVideoUri != null ? 1f : 0.45f
+            !busy && videoReady ? 1f : 0.45f
         );
         if (!busy) {
             refreshMakerQueue();
@@ -1860,6 +2292,30 @@ public final class MainActivity extends Activity {
             "%.2f s",
             milliseconds / 1_000.0
         );
+    }
+
+    private static String formatTimestamp(long milliseconds) {
+        long safe = Math.max(0, milliseconds);
+        return String.format(
+            java.util.Locale.ROOT,
+            "%02d:%02d.%03d",
+            safe / 60_000L,
+            (safe / 1_000L) % 60L,
+            safe % 1_000L
+        );
+    }
+
+    private static String speedLabel(float speed) {
+        if (speed == 0.125f) {
+            return "⅛×";
+        }
+        if (speed == 0.25f) {
+            return "¼×";
+        }
+        if (speed == 0.5f) {
+            return "½×";
+        }
+        return String.format(java.util.Locale.ROOT, "%.0f×", speed);
     }
 
     private void pickArchive() {
@@ -2133,9 +2589,9 @@ public final class MainActivity extends Activity {
                                 )
                             )
                         )
-                    );
+                );
                 if (export.formats.contains("video")) {
-                    String token = BotTokenStore.load(this);
+                    String token = effectiveTelegramToken();
                     if (token.isEmpty()) {
                         throw new IOException(
                             getString(R.string.telegram_video_needs_token)
@@ -2436,14 +2892,40 @@ public final class MainActivity extends Activity {
         telegramToken.setSelection(telegramToken.length());
     }
 
+    private void toggleTokenCustomization() {
+        tokenCustomizationVisible = !tokenCustomizationVisible;
+        tokenCustomizationPanel.setVisibility(
+            tokenCustomizationVisible ? View.VISIBLE : View.GONE
+        );
+        customizeTokenButton.setText(
+            tokenCustomizationVisible
+                ? R.string.hide_token_customization
+                : R.string.customize_token_api
+        );
+        if (tokenCustomizationVisible) {
+            telegramToken.requestFocus();
+        }
+    }
+
+    private String effectiveTelegramToken() throws IOException {
+        String custom = BotTokenStore.load(this).trim();
+        return custom.isEmpty() ? DefaultBotCredential.value() : custom;
+    }
+
     private void updateTokenSavedState(boolean saved) {
         if (tokenSavedStatus == null) {
             return;
         }
         tokenSavedStatus.setText(
-            R.string.token_saved_message
+            saved
+                ? R.string.token_saved_message
+                : (
+                    DefaultBotCredential.available()
+                        ? R.string.builtin_token_active
+                        : R.string.no_builtin_token
+                )
         );
-        tokenSavedStatus.setVisibility(saved ? View.VISIBLE : View.GONE);
+        tokenSavedStatus.setVisibility(View.VISIBLE);
     }
 
     private void openBotFather() {

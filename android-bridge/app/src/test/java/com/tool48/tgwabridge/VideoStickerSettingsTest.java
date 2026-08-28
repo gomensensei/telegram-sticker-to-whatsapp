@@ -36,4 +36,51 @@ public final class VideoStickerSettingsTest {
             // Expected.
         }
     }
+
+    @Test
+    public void fastPlaybackAllowsLongerSourceClip() {
+        VideoStickerSettings value = new VideoStickerSettings(
+            500,
+            12_000,
+            4f,
+            1f,
+            0f,
+            0f,
+            VideoStickerSettings.Background.BLACK
+        );
+        assertEquals(12_000, value.durationMs);
+        assertEquals(3_000, value.outputDurationMs());
+    }
+
+    @Test
+    public void slowPlaybackExpandsShortSourceClip() {
+        VideoStickerSettings value = new VideoStickerSettings(
+            0,
+            375,
+            0.125f,
+            1f,
+            0f,
+            0f,
+            VideoStickerSettings.Background.WHITE
+        );
+        assertEquals(3_000, value.outputDurationMs());
+    }
+
+    @Test
+    public void rejectsAdjustedClipAboveWhatsappLimit() {
+        try {
+            new VideoStickerSettings(
+                0,
+                376,
+                0.125f,
+                1f,
+                0f,
+                0f,
+                VideoStickerSettings.Background.TRANSPARENT
+            );
+            fail("Expected adjusted duration to fail.");
+        } catch (IllegalArgumentException expected) {
+            // Expected.
+        }
+    }
 }

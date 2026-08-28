@@ -9,6 +9,7 @@ final class VideoStickerSettings {
 
     final long startMs;
     final long durationMs;
+    final float playbackSpeed;
     final float scale;
     final float offsetX;
     final float offsetY;
@@ -17,6 +18,7 @@ final class VideoStickerSettings {
     VideoStickerSettings(
         long startMs,
         long durationMs,
+        float playbackSpeed,
         float scale,
         float offsetX,
         float offsetY,
@@ -25,9 +27,15 @@ final class VideoStickerSettings {
         if (startMs < 0) {
             throw new IllegalArgumentException("Start time cannot be negative.");
         }
-        if (durationMs < 200 || durationMs > 3_000) {
+        if (playbackSpeed < 0.125f || playbackSpeed > 8.0f) {
             throw new IllegalArgumentException(
-                "Duration must be between 0.2 and 3 seconds."
+                "Playback speed must be between 1/8x and 8x."
+            );
+        }
+        long outputDurationMs = Math.round(durationMs / playbackSpeed);
+        if (outputDurationMs < 200 || outputDurationMs > 3_000) {
+            throw new IllegalArgumentException(
+                "The adjusted clip must be between 0.2 and 3 seconds."
             );
         }
         if (scale < 0.25f || scale > 4.0f) {
@@ -50,9 +58,33 @@ final class VideoStickerSettings {
         }
         this.startMs = startMs;
         this.durationMs = durationMs;
+        this.playbackSpeed = playbackSpeed;
         this.scale = scale;
         this.offsetX = offsetX;
         this.offsetY = offsetY;
         this.background = background;
+    }
+
+    VideoStickerSettings(
+        long startMs,
+        long durationMs,
+        float scale,
+        float offsetX,
+        float offsetY,
+        Background background
+    ) {
+        this(
+            startMs,
+            durationMs,
+            1f,
+            scale,
+            offsetX,
+            offsetY,
+            background
+        );
+    }
+
+    long outputDurationMs() {
+        return Math.round(durationMs / playbackSpeed);
     }
 }

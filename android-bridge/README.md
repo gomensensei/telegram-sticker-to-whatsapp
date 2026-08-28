@@ -1,6 +1,6 @@
 # TGWA Maker Android
 
-TGWA Maker 2.2.0 is an on-phone Telegram/WhatsApp sticker converter and video
+TGWA Maker 2.3.0 is an on-phone Telegram/WhatsApp sticker converter and video
 sticker maker.
 
 ## Features
@@ -12,8 +12,13 @@ sticker maker.
 - Converts static WebP/PNG, TGS, and WEBM stickers on the phone.
 - Separates static and animated stickers, then splits each type into valid
   3–30-sticker packs without duplicating stickers.
-- Provides a video editor with 0.2–3 second trimming, position, pinch scaling,
-  and transparent/black/white backgrounds.
+- Provides separate start/end selectors with thumbnails, an exact
+  `MM:SS.mmm → MM:SS.mmm` range, a selected-segment preview, and a final
+  timing preview.
+- Applies real 1/8x, 1/4x, 1/2x, 1x, 2x, 4x, or 8x playback timing to frame
+  sampling and Animated WebP output. Trim bounds automatically keep the
+  adjusted result within 0.2–3 seconds.
+- Keeps position, pinch scaling, and transparent/black/white backgrounds.
 - Encodes real Animated WebP through JNI and libwebp `WebPAnimEncoder`.
 - Imports existing `.wastickers` archives.
 - Adds a dedicated on-phone pack-manager tab instead of placing saved packs
@@ -25,14 +30,16 @@ sticker maker.
   Bot API because Telegram's Android import intent does not recognise WEBM.
 - Adds packs to WhatsApp or WhatsApp Business through the official provider
   and enable-pack intent contract.
-- Encrypts the Telegram Bot Token with Android Keystore. It is never included
-  in a pack, log, or build artifact.
+- Uses an obfuscated build-time shared Bot credential by default, with the
+  token editor hidden behind `Customize token/API`. A third-party token
+  overrides it and is encrypted with Android Keystore on the phone.
 - Matches the desktop tool's dark green card layout with Telegram, video-maker,
   and saved-pack tabs.
 - Includes an in-app English / Traditional Chinese (Hong Kong) switch and
   keeps the current form and selected video when the language changes.
 - Provides paste, show/hide, saved-state, forget, and BotFather shortcuts for
-  the on-device Token flow without embedding a Token in the APK.
+  the optional custom Token flow. Removing a custom token returns to the
+  built-in Bot.
 - Shows a prominent staged progress card as soon as conversion starts.
 - Opens WhatsApp automatically when conversion completes and continues through
   every generated Part after each official WhatsApp confirmation.
@@ -72,6 +79,12 @@ Requirements:
 ```powershell
 gradle --no-daemon testDebugUnitTest assembleDebug
 ```
+
+To inject the optional shared Bot for a distribution build, set
+`TGWA_DEFAULT_BOT_TOKEN` in the build environment. The plaintext value is not
+stored in this repository; Gradle emits only masked Base64 data. This is
+obfuscation, not a secure secret boundary: credentials shipped in any APK can
+still be recovered by a determined reverse engineer.
 
 If the checkout path contains non-ASCII characters, map it to an ASCII drive
 letter before running Gradle on Windows. The APK is written to

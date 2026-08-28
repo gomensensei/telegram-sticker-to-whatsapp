@@ -120,19 +120,28 @@ WhatsApp 官方格式重點（貼圖包模式）：
 但不能用 Android `Bitmap.compress()` 將影片逐格「另存 WebP」代替真正動畫
 編碼；該路徑只會產生單幀 WebP，加入 WhatsApp 後就會變定格。
 
-`TGWA Maker 2.2.0` 已在 APK 內完成：
+`TGWA Maker 2.3.0` 已在 APK 內完成：
 
 - 貼上 Telegram sticker pack 連結後，直接以 Bot API 下載整包。
 - 靜態 WebP／PNG、TGS 及 WEBM 分別解碼；TGS 由 Lottie 渲染，影片及 WEBM
   經手機媒體解碼器取幀。
-- 自選手機影片、0.2–3 秒剪輯、拖曳位置、手勢縮放、透明／黑／白背景。
+- 自選手機影片，用開始／結束時間剪輯；兩端均有畫面縮圖、清楚顯示
+  `MM:SS.mmm → MM:SS.mmm`，並可分別預覽原片段及最終速度版本。
+- 支援 ⅛×、¼×、½× 慢播，以及 1×、2×、4×、8× 快播；速度會真正改變
+  Animated WebP 取格同時間軸，並自動將最終輸出限制在 0.2–3 秒。
+- 影片仍可拖曳位置、手勢縮放，並選透明／黑／白背景。
 - 經 JNI 使用 `libwebp WebPAnimEncoder` 真正逐幀編碼 Animated WebP。
 - 動圖與普通圖自動分開，超過 30 張自動建立 Part 1、Part 2…，並避免產生
   少於 3 張的尾包。
-- Bot Token 由 Android Keystore 加密，只留在手機。
+- 正式下載 APK 預設使用內置共享 Bot，Token 欄位保持隱藏；只有按
+  「自訂 Token／API」先會打開第三方 Bot 設定。自訂 Token 仍由 Android
+  Keystore 加密，只留在手機。
 - APK 介面跟本機版深綠卡片排版，Telegram 轉換同影片 Maker 分成兩個分頁。
 - 內置繁體中文（香港）／英文切換；切換時保留已填連結、Token、包名同已選影片。
-- Token 可直接貼上、顯示／隱藏、忘記及開啟 BotFather，但唔會硬編碼入 APK。
+- 內置共享 Token 以建置時混淆資料放入 APK，原始明文不會提交到 Git；但 APK
+  內憑證無法做到真正保密，熟悉反編譯的人仍有機會抽出，因此不應視作私密金鑰庫。
+- 自訂 Token 可直接貼上、顯示／隱藏、移除及開啟 BotFather；移除後會即時
+  回復使用內置 Bot。
 - 撳一鍵轉換後即時顯示階段文字、百分比同粗進度條。
 - 轉換完成會自動開啟 WhatsApp 加入畫面；多 Part 會喺每次確認後接住開下一包。
 - 先用 `MediaExtractor + MediaCodec` 由檔案開頭順序解碼 Telegram VP9 WEBM，
@@ -203,6 +212,9 @@ WEBM + WhatsApp Animated WebP 真實轉檔 smoke test。
 cd .\android-bridge
 gradle --no-daemon testDebugUnitTest assembleDebug
 ```
+
+如要建置包含共享 Bot 的版本，以環境變數 `TGWA_DEFAULT_BOT_TOKEN` 注入；
+Gradle 只會把混淆後資料寫入 `BuildConfig`，原始 Token 不應寫入 repository。
 
 目前可安裝 APK 位於
 `android-bridge/dist/TGWA-Maker.apk`。這是 sideload 測試／自用版本，採用

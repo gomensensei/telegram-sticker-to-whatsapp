@@ -460,8 +460,10 @@ final class VideoStickerRenderer {
                     frameCount,
                     frameIndex
                 );
-                int timestampMs = (int) (
-                    frameIndex * settings.durationMs / frameCount
+                int timestampMs = outputTimestampMs(
+                    settings,
+                    frameIndex,
+                    frameCount
                 );
                 encoder.addFrame(
                     cache.frames.get(sourceIndex),
@@ -474,13 +476,14 @@ final class VideoStickerRenderer {
                     frameCount
                 );
             }
-            byte[] data = encoder.finish((int) settings.durationMs);
+            long outputDurationMs = settings.outputDurationMs();
+            byte[] data = encoder.finish((int) outputDurationMs);
             Result result = new Result(
                 data,
                 fps,
                 quality,
                 frameCount,
-                settings.durationMs
+                outputDurationMs
             );
             requireMultiFrame(result);
             return result;
@@ -528,13 +531,14 @@ final class VideoStickerRenderer {
                     profileIndex
                 )
             );
-            byte[] data = encoder.finish((int) settings.durationMs);
+            long outputDurationMs = settings.outputDurationMs();
+            byte[] data = encoder.finish((int) outputDurationMs);
             return new Result(
                 data,
                 fps,
                 quality,
                 frameCount,
-                settings.durationMs
+                outputDurationMs
             );
         } catch (IllegalArgumentException error) {
             throw new IOException(
@@ -652,13 +656,14 @@ final class VideoStickerRenderer {
                     );
                 }
             }
-            byte[] data = encoder.finish((int) settings.durationMs);
+            long outputDurationMs = settings.outputDurationMs();
+            byte[] data = encoder.finish((int) outputDurationMs);
             return new Result(
                 data,
                 fps,
                 quality,
                 outputFrameCount,
-                settings.durationMs
+                outputDurationMs
             );
         } catch (IllegalArgumentException error) {
             throw new IOException(
@@ -723,13 +728,14 @@ final class VideoStickerRenderer {
                     source.recycle();
                 }
             }
-            byte[] data = encoder.finish((int) settings.durationMs);
+            long outputDurationMs = settings.outputDurationMs();
+            byte[] data = encoder.finish((int) outputDurationMs);
             return new Result(
                 data,
                 fps,
                 quality,
                 frameCount,
-                settings.durationMs
+                outputDurationMs
             );
         } catch (RuntimeException error) {
             throw new IOException(
@@ -747,7 +753,9 @@ final class VideoStickerRenderer {
     ) {
         return Math.max(
             2,
-            (int) Math.ceil(settings.durationMs * fps / 1_000.0)
+            (int) Math.ceil(
+                settings.outputDurationMs() * fps / 1_000.0
+            )
         );
     }
 
@@ -761,8 +769,10 @@ final class VideoStickerRenderer {
         int profileIndex
     ) throws IOException {
         Bitmap frame = compose(source, settings);
-        int timestampMs = (int) (
-            frameIndex * settings.durationMs / frameCount
+        int timestampMs = outputTimestampMs(
+            settings,
+            frameIndex,
+            frameCount
         );
         try {
             encoder.addFrame(frame, timestampMs);
@@ -789,6 +799,16 @@ final class VideoStickerRenderer {
                     + "."
             );
         }
+    }
+
+    private static int outputTimestampMs(
+        VideoStickerSettings settings,
+        int frameIndex,
+        int frameCount
+    ) {
+        return (int) (
+            frameIndex * settings.outputDurationMs() / frameCount
+        );
     }
 
     private static void reportCachedFrameProgress(
