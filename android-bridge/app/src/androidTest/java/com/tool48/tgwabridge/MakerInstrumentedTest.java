@@ -10,6 +10,8 @@ import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.media.MediaExtractor;
+import android.media.MediaFormat;
 
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
@@ -18,6 +20,9 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.zip.GZIPOutputStream;
 
@@ -55,6 +60,88 @@ public final class MakerInstrumentedTest {
             assertEquals(0, Color.alpha(decoded.getPixel(0, 0)));
         } finally {
             decoded.recycle();
+        }
+    }
+
+    @Test
+    public void animatedWebpExportsAsMultiFrameTelegramVp9()
+        throws Exception {
+        byte[] data;
+        try (NativeWebpEncoder encoder = new NativeWebpEncoder(512, 512, 70)) {
+            Bitmap first = square(Color.RED, 80);
+            Bitmap second = square(Color.BLUE, 320);
+            try {
+                encoder.addFrame(first, 0);
+                encoder.addFrame(second, 100);
+                data = encoder.finish(200);
+            } finally {
+                first.recycle();
+                second.recycle();
+            }
+        }
+        try (
+            NativeAnimatedWebpDecoder decoder =
+                new NativeAnimatedWebpDecoder(data)
+        ) {
+            assertEquals(2, decoder.frameCount());
+            Bitmap frame = Bitmap.createBitmap(
+                512,
+                512,
+                Bitmap.Config.ARGB_8888
+            );
+            try {
+                assertEquals(100, decoder.nextFrame(frame));
+                assertEquals(200, decoder.nextFrame(frame));
+            } finally {
+                frame.recycle();
+            }
+        }
+
+        Context context = InstrumentationRegistry
+            .getInstrumentation()
+            .getTargetContext();
+        File input = new File(context.getCacheDir(), "telegram-input.webp");
+        File output = new File(context.getCacheDir(), "telegram-output.webm");
+        try {
+            try (FileOutputStream stream = new FileOutputStream(input)) {
+                stream.write(data);
+            }
+            TelegramVp9Encoder.encode(input, output, null);
+            assertTrue(output.length() > 0);
+            assertTrue(output.length() <= 256 * 1024);
+            byte[] webm;
+            try (FileInputStream stream = new FileInputStream(output)) {
+                webm = PackStore.readFully(stream, 256 * 1024);
+            }
+            assertTrue(contains(webm, new byte[] {0x53, (byte) 0xc0, (byte) 0x81, 0x01}));
+            assertTrue(contains(webm, new byte[] {0x75, (byte) 0xa1}));
+            MediaExtractor extractor = new MediaExtractor();
+            try {
+                extractor.setDataSource(output.getAbsolutePath());
+                int videoTrack = -1;
+                for (int index = 0; index < extractor.getTrackCount(); index++) {
+                    MediaFormat format = extractor.getTrackFormat(index);
+                    String mime = format.getString(MediaFormat.KEY_MIME);
+                    if (mime != null && mime.startsWith("video/")) {
+                        videoTrack = index;
+                        assertEquals("video/x-vnd.on2.vp9", mime);
+                        break;
+                    }
+                }
+                assertTrue(videoTrack >= 0);
+                extractor.selectTrack(videoTrack);
+                int samples = 0;
+                while (extractor.getSampleTime() >= 0) {
+                    samples++;
+                    extractor.advance();
+                }
+                assertTrue(samples >= 2);
+            } finally {
+                extractor.release();
+            }
+        } finally {
+            input.delete();
+            output.delete();
         }
     }
 
@@ -128,6 +215,22 @@ public final class MakerInstrumentedTest {
             gzip.write(value.getBytes(StandardCharsets.UTF_8));
         }
         return output.toByteArray();
+    }
+
+    private static boolean contains(byte[] source, byte[] needle) {
+        for (int index = 0; index <= source.length - needle.length; index++) {
+            boolean matches = true;
+            for (int offset = 0; offset < needle.length; offset++) {
+                if (source[index + offset] != needle[offset]) {
+                    matches = false;
+                    break;
+                }
+            }
+            if (matches) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String simpleMovingCircleLottie() {

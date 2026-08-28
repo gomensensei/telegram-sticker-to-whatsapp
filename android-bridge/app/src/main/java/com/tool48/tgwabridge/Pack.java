@@ -15,6 +15,8 @@ final class Pack {
     final String imageDataVersion;
     final boolean animated;
     final List<Sticker> stickers;
+    final String telegramSourceName;
+    final int telegramPartIndex;
 
     Pack(
         String identifier,
@@ -25,6 +27,30 @@ final class Pack {
         boolean animated,
         List<Sticker> stickers
     ) {
+        this(
+            identifier,
+            name,
+            publisher,
+            trayImageFile,
+            imageDataVersion,
+            animated,
+            stickers,
+            "",
+            -1
+        );
+    }
+
+    Pack(
+        String identifier,
+        String name,
+        String publisher,
+        String trayImageFile,
+        String imageDataVersion,
+        boolean animated,
+        List<Sticker> stickers,
+        String telegramSourceName,
+        int telegramPartIndex
+    ) {
         this.identifier = identifier;
         this.name = name;
         this.publisher = publisher;
@@ -32,6 +58,10 @@ final class Pack {
         this.imageDataVersion = imageDataVersion;
         this.animated = animated;
         this.stickers = stickers;
+        this.telegramSourceName = telegramSourceName == null
+            ? ""
+            : telegramSourceName.trim();
+        this.telegramPartIndex = telegramPartIndex;
     }
 
     JSONObject toJson() throws JSONException {
@@ -42,6 +72,10 @@ final class Pack {
         result.put("tray_image_file", trayImageFile);
         result.put("image_data_version", imageDataVersion);
         result.put("animated_sticker_pack", animated);
+        if (!telegramSourceName.isEmpty()) {
+            result.put("telegram_source_name", telegramSourceName);
+            result.put("telegram_part_index", telegramPartIndex);
+        }
         JSONArray stickerValues = new JSONArray();
         for (Sticker sticker : stickers) {
             stickerValues.put(sticker.toJson());
@@ -63,7 +97,9 @@ final class Pack {
             source.getString("tray_image_file"),
             source.getString("image_data_version"),
             source.optBoolean("animated_sticker_pack", false),
-            stickers
+            stickers,
+            source.optString("telegram_source_name", ""),
+            source.optInt("telegram_part_index", -1)
         );
     }
 }

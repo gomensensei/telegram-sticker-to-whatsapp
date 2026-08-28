@@ -87,6 +87,7 @@ public final class MainActivity extends Activity {
     private Button tokenVisibilityButton;
     private Button telegramTabButton;
     private Button videoTabButton;
+    private Button packTabButton;
     private Button languageButton;
     private Button chooseVideoButton;
     private Button renderVideoButton;
@@ -119,6 +120,7 @@ public final class MainActivity extends Activity {
     private LinearLayout telegramProgressPanel;
     private LinearLayout telegramPanel;
     private LinearLayout makerPanel;
+    private LinearLayout packPanel;
     private Uri selectedVideoUri;
     private long selectedVideoDurationMs;
     private int previewGeneration;
@@ -386,6 +388,10 @@ public final class MainActivity extends Activity {
         videoTabButton.setText(R.string.tab_video);
         videoTabButton.setAllCaps(false);
         videoTabButton.setOnClickListener(view -> showTab(1));
+        packTabButton = new Button(this);
+        packTabButton.setText(R.string.tab_packs);
+        packTabButton.setAllCaps(false);
+        packTabButton.setOnClickListener(view -> showTab(2));
         tabs.addView(
             telegramTabButton,
             new LinearLayout.LayoutParams(
@@ -396,6 +402,14 @@ public final class MainActivity extends Activity {
         );
         tabs.addView(
             videoTabButton,
+            new LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f
+            )
+        );
+        tabs.addView(
+            packTabButton,
             new LinearLayout.LayoutParams(
                 0,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -415,9 +429,37 @@ public final class MainActivity extends Activity {
         makerPanel.setOrientation(LinearLayout.VERTICAL);
         buildMakerInterface(makerPanel);
         converterCard.addView(makerPanel, matchWrap());
+
+        packPanel = new LinearLayout(this);
+        packPanel.setOrientation(LinearLayout.VERTICAL);
+        buildPackManagerInterface(packPanel);
+        converterCard.addView(packPanel, matchWrap());
         showTab(0);
 
         buildHandlesCard(root);
+
+        setContentView(scroll);
+        refreshMakerQueue();
+    }
+
+    private void buildPackManagerInterface(LinearLayout root) {
+        TextView managerTitle = text(
+            getString(R.string.pack_manager_title),
+            22,
+            TEXT
+        );
+        managerTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        LinearLayout.LayoutParams managerTitleParams = matchWrap();
+        managerTitleParams.topMargin = dp(20);
+        root.addView(managerTitle, managerTitleParams);
+        TextView managerHint = text(
+            getString(R.string.pack_manager_hint),
+            14,
+            MUTED
+        );
+        LinearLayout.LayoutParams managerHintParams = matchWrap();
+        managerHintParams.topMargin = dp(6);
+        root.addView(managerHint, managerHintParams);
 
         LinearLayout importCard = card();
         LinearLayout.LayoutParams importCardParams = matchWrap();
@@ -468,8 +510,6 @@ public final class MainActivity extends Activity {
         listParams.topMargin = dp(12);
         packsCard.addView(packList, listParams);
 
-        setContentView(scroll);
-        refreshMakerQueue();
     }
 
     private void buildTelegramInterface(LinearLayout root) {
@@ -788,11 +828,13 @@ public final class MainActivity extends Activity {
                     );
                     telegramStatus.setText(
                         getString(
-                            R.string.telegram_done,
+                            R.string.telegram_sync_done,
                             result.source.title,
                             result.staticCount,
                             result.animatedCount,
-                            result.packs.size()
+                            result.packs.size(),
+                            result.newCount,
+                            result.reusedCount
                         )
                     );
                     refreshPacks();
@@ -818,6 +860,12 @@ public final class MainActivity extends Activity {
         switch (progress.stage) {
             case READING_PACK:
                 return getString(R.string.progress_reading_pack);
+            case REUSING_STICKER:
+                return getString(
+                    R.string.progress_reusing_sticker,
+                    progress.stickerNumber,
+                    progress.stickerCount
+                );
             case DOWNLOADING_STICKER:
                 return getString(
                     R.string.progress_downloading_sticker,
@@ -1890,6 +1938,7 @@ public final class MainActivity extends Activity {
     }
 
     private void importArchive(Uri uri) {
+        showTab(2);
         importButton.setEnabled(false);
         status.setText(R.string.importing);
         executor.execute(() -> {
@@ -1982,6 +2031,16 @@ public final class MainActivity extends Activity {
                     addedLabel(getString(R.string.added_whatsapp)),
                     matchWrap()
                 );
+                if (!pack.telegramSourceName.isEmpty()) {
+                    Button updateWhatsapp = addButton(
+                        getString(R.string.update_whatsapp),
+                        view -> enablePack(pack, WHATSAPP)
+                    );
+                    styleSecondary(updateWhatsapp);
+                    LinearLayout.LayoutParams updateParams = matchWrap();
+                    updateParams.topMargin = dp(7);
+                    buttons.addView(updateWhatsapp, updateParams);
+                }
             } else {
                 Button addWhatsapp = addButton(
                     getString(R.string.add_whatsapp),
@@ -1992,11 +2051,12 @@ public final class MainActivity extends Activity {
             }
         }
         if (isInstalled(WHATSAPP_BUSINESS)) {
-            View business = WhitelistCheck.isWhitelisted(
+            boolean businessAdded = WhitelistCheck.isWhitelisted(
                 this,
                 pack,
                 WHATSAPP_BUSINESS
-            )
+            );
+            View business = businessAdded
                 ? addedLabel(getString(R.string.added_business))
                 : addButton(
                     getString(R.string.add_business),
@@ -2005,6 +2065,16 @@ public final class MainActivity extends Activity {
             LinearLayout.LayoutParams businessParams = matchWrap();
             businessParams.topMargin = dp(7);
             buttons.addView(business, businessParams);
+            if (businessAdded && !pack.telegramSourceName.isEmpty()) {
+                Button updateBusiness = addButton(
+                    getString(R.string.update_business),
+                    view -> enablePack(pack, WHATSAPP_BUSINESS)
+                );
+                styleSecondary(updateBusiness);
+                LinearLayout.LayoutParams updateParams = matchWrap();
+                updateParams.topMargin = dp(7);
+                buttons.addView(updateBusiness, updateParams);
+            }
         }
         if (
             !isInstalled(WHATSAPP)
@@ -2017,6 +2087,15 @@ public final class MainActivity extends Activity {
             );
             buttons.addView(missing, matchWrap());
         }
+
+        Button addTelegram = addButton(
+            getString(R.string.add_telegram),
+            view -> exportPackToTelegram(pack)
+        );
+        styleSecondary(addTelegram);
+        LinearLayout.LayoutParams telegramParams = matchWrap();
+        telegramParams.topMargin = dp(7);
+        buttons.addView(addTelegram, telegramParams);
 
         Button delete = addButton(
             getString(R.string.delete),
@@ -2031,6 +2110,148 @@ public final class MainActivity extends Activity {
         cardParams.bottomMargin = dp(10);
         card.setLayoutParams(cardParams);
         return card;
+    }
+
+    private void exportPackToTelegram(Pack pack) {
+        showTab(2);
+        setPackStatus(
+            getString(R.string.telegram_export_starting, pack.name)
+        );
+        executor.execute(() -> {
+            try {
+                TelegramPackExporter.Result export =
+                    TelegramPackExporter.prepare(
+                        this,
+                        pack,
+                        (percent, number, count) -> mainHandler.post(() ->
+                            setPackStatus(
+                                getString(
+                                    R.string.telegram_export_progress,
+                                    number,
+                                    count,
+                                    percent
+                                )
+                            )
+                        )
+                    );
+                if (export.formats.contains("video")) {
+                    String token = BotTokenStore.load(this);
+                    if (token.isEmpty()) {
+                        throw new IOException(
+                            getString(R.string.telegram_video_needs_token)
+                        );
+                    }
+                    TelegramBotPackUploader.Result uploaded =
+                        TelegramBotPackUploader.upload(
+                            token,
+                            pack.name,
+                            export.files,
+                            export.formats,
+                            export.emojis,
+                            percent -> mainHandler.post(() ->
+                                setPackStatus(
+                                    getString(
+                                        R.string.telegram_bot_upload_progress,
+                                        percent
+                                    )
+                                )
+                            )
+                        );
+                    mainHandler.post(() ->
+                        launchTelegramVideoPack(pack, export, uploaded)
+                    );
+                } else {
+                    mainHandler.post(() -> launchTelegramImport(pack, export));
+                }
+            } catch (Exception error) {
+                mainHandler.post(() ->
+                    setPackStatus(
+                        getString(
+                            R.string.telegram_export_failed,
+                            friendly(error)
+                        )
+                    )
+                );
+            }
+        });
+    }
+
+    private void launchTelegramImport(
+        Pack pack,
+        TelegramPackExporter.Result export
+    ) {
+        Intent intent = new Intent(
+            "org.telegram.messenger.CREATE_STICKER_PACK"
+        );
+        intent.setType(
+            export.formats.contains("animated")
+                ? "application/x-tgsticker"
+                : "image/*"
+        );
+        intent.putParcelableArrayListExtra(
+            Intent.EXTRA_STREAM,
+            export.uris
+        );
+        intent.putStringArrayListExtra(
+            "STICKER_EMOJIS",
+            export.emojis
+        );
+        intent.putExtra("IMPORTER", getPackageName());
+        ClipData clip = new ClipData(
+            pack.name,
+            new String[] {"application/octet-stream"},
+            new ClipData.Item(export.uris.get(0))
+        );
+        for (int index = 1; index < export.uris.size(); index++) {
+            clip.addItem(new ClipData.Item(export.uris.get(index)));
+        }
+        intent.setClipData(clip);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        try {
+            startActivity(intent);
+            setPackStatus(
+                getString(
+                    R.string.telegram_export_opened,
+                    pack.name
+                )
+            );
+        } catch (ActivityNotFoundException error) {
+            setPackStatus(getString(R.string.telegram_missing));
+        }
+    }
+
+    private void launchTelegramVideoPack(
+        Pack pack,
+        TelegramPackExporter.Result export,
+        TelegramBotPackUploader.Result uploaded
+    ) {
+        Intent intent = new Intent(
+            Intent.ACTION_VIEW,
+            Uri.parse(uploaded.link)
+        );
+        try {
+            startActivity(intent);
+            setPackStatus(
+                getString(
+                    R.string.telegram_video_pack_created,
+                    pack.name
+                )
+            );
+            if (export.recreatedVideo) {
+                Toast.makeText(
+                    this,
+                    R.string.telegram_export_video_notice,
+                    Toast.LENGTH_LONG
+                ).show();
+            }
+        } catch (ActivityNotFoundException error) {
+            setPackStatus(
+                getString(
+                    R.string.telegram_video_pack_link,
+                    uploaded.link
+                )
+            );
+        }
     }
 
     private void buildHandlesCard(LinearLayout root) {
@@ -2095,8 +2316,12 @@ public final class MainActivity extends Activity {
     }
 
     private void showTab(int tab) {
-        selectedTab = tab == 1 ? 1 : 0;
-        if (telegramPanel == null || makerPanel == null) {
+        selectedTab = Math.max(0, Math.min(2, tab));
+        if (
+            telegramPanel == null
+            || makerPanel == null
+            || packPanel == null
+        ) {
             return;
         }
         telegramPanel.setVisibility(
@@ -2105,8 +2330,12 @@ public final class MainActivity extends Activity {
         makerPanel.setVisibility(
             selectedTab == 1 ? View.VISIBLE : View.GONE
         );
+        packPanel.setVisibility(
+            selectedTab == 2 ? View.VISIBLE : View.GONE
+        );
         styleTab(telegramTabButton, selectedTab == 0);
         styleTab(videoTabButton, selectedTab == 1);
+        styleTab(packTabButton, selectedTab == 2);
     }
 
     private void restoreInterfaceState(Bundle state) {

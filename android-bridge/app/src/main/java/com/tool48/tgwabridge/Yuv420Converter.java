@@ -151,17 +151,49 @@ final class Yuv420Converter {
                         + describe(image)
                 );
             }
-            int[] pixels = toArgb(
+            PlaneData[] data = new PlaneData[] {
+                data(planes[0]),
+                data(planes[1]),
+                data(planes[2])
+            };
+            Layout layout = chooseLayout(
+                data,
                 width,
                 height,
                 crop.left,
-                crop.top,
-                new PlaneData[] {
-                    data(planes[0]),
-                    data(planes[1]),
-                    data(planes[2])
-                }
+                crop.top
             );
+            Bitmap bitmap = Bitmap.createBitmap(
+                width,
+                height,
+                Bitmap.Config.ARGB_8888
+            );
+            if (
+                NativePixelConverter.yuv420ToBitmap(
+                    layout.y.buffer,
+                    layout.y.base,
+                    layout.y.limit,
+                    layout.y.rowStride,
+                    layout.y.pixelStride,
+                    layout.u.buffer,
+                    layout.u.base,
+                    layout.u.limit,
+                    layout.u.rowStride,
+                    layout.u.pixelStride,
+                    layout.v.buffer,
+                    layout.v.base,
+                    layout.v.limit,
+                    layout.v.rowStride,
+                    layout.v.pixelStride,
+                    layout.left,
+                    layout.top,
+                    bitmap
+                )
+            ) {
+                return bitmap;
+            }
+            bitmap.recycle();
+            int[] pixels = toArgb(width, height, data, layout);
             return Bitmap.createBitmap(
                 pixels,
                 width,
@@ -209,6 +241,15 @@ final class Yuv420Converter {
             cropLeft,
             cropTop
         );
+        return toArgb(width, height, planes, layout);
+    }
+
+    private static int[] toArgb(
+        int width,
+        int height,
+        PlaneData[] planes,
+        Layout layout
+    ) {
         int[] pixels = new int[width * height];
         for (int row = 0; row < height; row++) {
             int sourceY = layout.top + row;

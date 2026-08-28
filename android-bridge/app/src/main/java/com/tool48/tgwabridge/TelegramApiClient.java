@@ -29,11 +29,20 @@ final class TelegramApiClient {
 
     static final class RemoteSticker {
         final String fileId;
+        final String uniqueId;
         final String emoji;
         final Kind kind;
 
-        RemoteSticker(String fileId, String emoji, Kind kind) {
+        RemoteSticker(
+            String fileId,
+            String uniqueId,
+            String emoji,
+            Kind kind
+        ) {
             this.fileId = fileId;
+            this.uniqueId = uniqueId == null || uniqueId.trim().isEmpty()
+                ? fileId
+                : uniqueId.trim();
             this.emoji = emoji;
             this.kind = kind;
         }
@@ -89,6 +98,7 @@ final class TelegramApiClient {
             stickers.add(
                 new RemoteSticker(
                     value.getString("file_id"),
+                    value.optString("file_unique_id", ""),
                     value.optString("emoji", "\uD83D\uDE00"),
                     kind
                 )

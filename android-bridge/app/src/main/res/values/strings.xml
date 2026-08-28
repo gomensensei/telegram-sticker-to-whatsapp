@@ -12,6 +12,7 @@
     <string name="start_conversion">Start conversion</string>
     <string name="tab_telegram">Telegram sticker pack</string>
     <string name="tab_video">Video animated sticker</string>
+    <string name="tab_packs">My packs</string>
     <string name="telegram_title">Convert a Telegram sticker pack</string>
     <string name="telegram_hint">Static WebP/PNG, TGS and WEBM are converted on this phone, separated by type, and split into valid packs of up to 30.</string>
     <string name="telegram_link_label">Telegram sticker-pack link</string>
@@ -35,6 +36,7 @@
     <string name="enter_bot_token">Enter a Telegram Bot Token.</string>
     <string name="telegram_starting">Starting Telegram conversion…</string>
     <string name="progress_reading_pack">Reading Telegram pack details…</string>
+    <string name="progress_reusing_sticker">Sticker %1$d/%2$d · reusing previous render</string>
     <string name="progress_downloading_sticker">Sticker %1$d/%2$d · downloading %3$d%%</string>
     <string name="progress_converting_sticker">Sticker %1$d/%2$d · converting animation %3$d%%</string>
     <string name="progress_building_packs">Validating and building WhatsApp packs…</string>
@@ -43,7 +45,7 @@
     <string name="progress_waiting">•••</string>
     <string name="progress_error_symbol">!</string>
     <string name="conversion_ready">Conversion complete · preparing WhatsApp</string>
-    <string name="telegram_done">Converted %1$s: %2$d static + %3$d animated stickers into %4$d WhatsApp pack(s).</string>
+    <string name="telegram_sync_done">Synced %1$s: %2$d static + %3$d animated into %4$d WhatsApp pack(s). Rendered %5$d new; reused %6$d.</string>
     <string name="telegram_failed">Telegram conversion failed: %1$s</string>
     <string name="token_removed">Saved Telegram Bot Token removed from this phone.</string>
     <string name="telegram_link_received">Telegram pack link received. Press the convert button.</string>
@@ -95,6 +97,8 @@
     <string name="pack_build_failed">Pack build failed: %1$s</string>
 
     <string name="import_title">Import an existing pack</string>
+    <string name="pack_manager_title">Manage packs on this phone</string>
+    <string name="pack_manager_hint">Add to WhatsApp, send back to Telegram, import, or delete without scrolling past the converters.</string>
     <string name="import_hint">Open a desktop .wastickers file and validate it before WhatsApp sees it.</string>
     <string name="import_wastickers">Import .wastickers</string>
     <string name="importing">Importing and validating…</string>
@@ -108,8 +112,21 @@
     <string name="pack_details">%1$d %2$s stickers · %3$s</string>
     <string name="added_whatsapp">Added to WhatsApp</string>
     <string name="add_whatsapp">Add to WhatsApp</string>
+    <string name="update_whatsapp">Refresh updated pack in WhatsApp</string>
     <string name="added_business">Added to Business</string>
     <string name="add_business">Add to Business</string>
+    <string name="update_business">Refresh updated pack in Business</string>
+    <string name="add_telegram">Send to Telegram</string>
+    <string name="telegram_export_starting">Preparing %1$s for Telegram…</string>
+    <string name="telegram_export_progress">Telegram sticker %1$d/%2$d · preparing %3$d%%</string>
+    <string name="telegram_export_failed">Telegram export failed: %1$s</string>
+    <string name="telegram_export_opened">Opened %1$s in Telegram. You can create a new pack or add it to one you own.</string>
+    <string name="telegram_export_video_notice">Locally made Animated WebP was converted to moving VP9 with a separate alpha stream for Telegram transparency.</string>
+    <string name="telegram_missing">Telegram is not installed or does not support sticker-pack import.</string>
+    <string name="telegram_video_needs_token">Video-sticker export needs the saved Telegram Bot Token. Return to the Telegram tab and save it first.</string>
+    <string name="telegram_bot_upload_progress">Creating real Telegram video-sticker pack… %1$d%%</string>
+    <string name="telegram_video_pack_created">Created %1$s as a Telegram video-sticker pack and opened its install page.</string>
+    <string name="telegram_video_pack_link">Telegram pack created: %1$s</string>
     <string name="whatsapp_missing">WhatsApp is not installed.</string>
     <string name="delete">Delete</string>
     <string name="whatsapp_open_failed">WhatsApp could not open this sticker pack.</string>

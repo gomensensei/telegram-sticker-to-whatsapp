@@ -11,11 +11,28 @@ final class Sticker {
     final String fileName;
     final List<String> emojis;
     final String accessibilityText;
+    final String telegramSourceId;
+    final String telegramSourceFile;
+    final String telegramSourceFormat;
 
     Sticker(String fileName, List<String> emojis, String accessibilityText) {
+        this(fileName, emojis, accessibilityText, "", "", "");
+    }
+
+    Sticker(
+        String fileName,
+        List<String> emojis,
+        String accessibilityText,
+        String telegramSourceId,
+        String telegramSourceFile,
+        String telegramSourceFormat
+    ) {
         this.fileName = fileName;
         this.emojis = emojis;
         this.accessibilityText = accessibilityText;
+        this.telegramSourceId = clean(telegramSourceId);
+        this.telegramSourceFile = clean(telegramSourceFile);
+        this.telegramSourceFormat = clean(telegramSourceFormat);
     }
 
     JSONObject toJson() throws JSONException {
@@ -23,6 +40,13 @@ final class Sticker {
         result.put("file_name", fileName);
         result.put("emojis", new JSONArray(emojis));
         result.put("accessibility_text", accessibilityText);
+        if (!telegramSourceId.isEmpty()) {
+            result.put("telegram_source_id", telegramSourceId);
+        }
+        if (!telegramSourceFile.isEmpty()) {
+            result.put("telegram_source_file", telegramSourceFile);
+            result.put("telegram_source_format", telegramSourceFormat);
+        }
         return result;
     }
 
@@ -43,7 +67,14 @@ final class Sticker {
         return new Sticker(
             source.getString("file_name"),
             emojis,
-            source.optString("accessibility_text", "")
+            source.optString("accessibility_text", ""),
+            source.optString("telegram_source_id", ""),
+            source.optString("telegram_source_file", ""),
+            source.optString("telegram_source_format", "")
         );
+    }
+
+    private static String clean(String value) {
+        return value == null ? "" : value.trim();
     }
 }

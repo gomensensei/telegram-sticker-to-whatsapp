@@ -13,6 +13,9 @@
         <intent>
             <action android:name="com.whatsapp.intent.action.ENABLE_STICKER_PACK" />
         </intent>
+        <intent>
+            <action android:name="org.telegram.messenger.CREATE_STICKER_PACK" />
+        </intent>
     </queries>
 
     <application
@@ -94,5 +97,12 @@
             android:enabled="true"
             android:exported="true"
             android:readPermission="com.whatsapp.sticker.READ" />
+
+        <provider
+            android:name=".TelegramExportProvider"
+            android:authorities="com.tool48.tgwabridge.telegramexportprovider"
+            android:enabled="true"
+            android:exported="false"
+            android:grantUriPermissions="true" />
     </application>
 </manifest>

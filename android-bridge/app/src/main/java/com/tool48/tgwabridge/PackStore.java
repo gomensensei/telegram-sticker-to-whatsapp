@@ -37,7 +37,9 @@ final class PackStore {
 
     static synchronized List<Pack> list(Context context) {
         List<Pack> result = new ArrayList<>();
-        File[] directories = root(context).listFiles(File::isDirectory);
+        File[] directories = root(context).listFiles(
+            file -> file.isDirectory() && !file.getName().startsWith(".")
+        );
         if (directories == null) {
             return result;
         }
@@ -67,6 +69,28 @@ final class PackStore {
         } catch (IOException | JSONException error) {
             return null;
         }
+    }
+
+    static synchronized List<Pack> findTelegramSource(
+        Context context,
+        String sourceName
+    ) {
+        List<Pack> result = new ArrayList<>();
+        String clean = sourceName == null ? "" : sourceName.trim();
+        if (clean.isEmpty()) {
+            return result;
+        }
+        for (Pack pack : list(context)) {
+            if (clean.equals(pack.telegramSourceName)) {
+                result.add(pack);
+            }
+        }
+        result.sort(
+            Comparator
+                .comparing((Pack pack) -> pack.animated)
+                .thenComparingInt(pack -> pack.telegramPartIndex)
+        );
+        return result;
     }
 
     static synchronized void writePack(File directory, Pack pack)

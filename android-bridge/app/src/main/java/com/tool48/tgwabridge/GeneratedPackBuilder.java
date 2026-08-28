@@ -21,11 +21,25 @@ final class GeneratedPackBuilder {
         final File file;
         final List<String> emojis;
         final String accessibilityText;
+        final String telegramSourceId;
+        final File telegramSourceFile;
+        final String telegramSourceFormat;
 
         Item(
             File file,
             List<String> emojis,
             String accessibilityText
+        ) {
+            this(file, emojis, accessibilityText, "", null, "");
+        }
+
+        Item(
+            File file,
+            List<String> emojis,
+            String accessibilityText,
+            String telegramSourceId,
+            File telegramSourceFile,
+            String telegramSourceFormat
         ) {
             this.file = file;
             this.emojis = emojis == null || emojis.isEmpty()
@@ -34,6 +48,13 @@ final class GeneratedPackBuilder {
             this.accessibilityText = accessibilityText == null
                 ? ""
                 : accessibilityText;
+            this.telegramSourceId = telegramSourceId == null
+                ? ""
+                : telegramSourceId.trim();
+            this.telegramSourceFile = telegramSourceFile;
+            this.telegramSourceFormat = telegramSourceFormat == null
+                ? ""
+                : telegramSourceFormat.trim();
         }
     }
 
@@ -47,6 +68,24 @@ final class GeneratedPackBuilder {
         String title,
         String publisher
     ) throws IOException, JSONException {
+        return buildSplit(
+            context,
+            staticItems,
+            animatedItems,
+            title,
+            publisher,
+            ""
+        );
+    }
+
+    static List<Pack> buildSplit(
+        Context context,
+        List<Item> staticItems,
+        List<Item> animatedItems,
+        String title,
+        String publisher,
+        String telegramSourceName
+    ) throws IOException, JSONException {
         validateMinimum(staticItems, "static");
         validateMinimum(animatedItems, "animated");
         if (staticItems.isEmpty() && animatedItems.isEmpty()) {
@@ -57,6 +96,11 @@ final class GeneratedPackBuilder {
         boolean mixed = !staticItems.isEmpty() && !animatedItems.isEmpty();
         List<Pack> result = new ArrayList<>();
         List<String> created = new ArrayList<>();
+        List<Pack> previous = PackStore.findTelegramSource(
+            context,
+            telegramSourceName
+        );
+        List<String> retained = new ArrayList<>();
         try {
             buildGroup(
                 context,
@@ -65,6 +109,9 @@ final class GeneratedPackBuilder {
                 cleanPublisher,
                 false,
                 mixed,
+                telegramSourceName,
+                previous,
+                retained,
                 result,
                 created
             );
@@ -75,9 +122,19 @@ final class GeneratedPackBuilder {
                 cleanPublisher,
                 true,
                 mixed,
+                telegramSourceName,
+                previous,
+                retained,
                 result,
                 created
             );
+            for (Pack old : previous) {
+                if (!retained.contains(old.identifier)) {
+                    PackStore.deleteTree(
+                        PackStore.packDirectory(context, old.identifier)
+                    );
+                }
+            }
         } catch (IOException | JSONException | RuntimeException error) {
             for (String identifier : created) {
                 try {
@@ -125,6 +182,9 @@ final class GeneratedPackBuilder {
         String publisher,
         boolean animated,
         boolean mixed,
+        String telegramSourceName,
+        List<Pack> previous,
+        List<String> retained,
         List<Pack> result,
         List<String> created
     ) throws IOException, JSONException {
@@ -142,6 +202,11 @@ final class GeneratedPackBuilder {
             String partTitle = sizes.size() > 1
                 ? groupTitle + " - Part " + (partIndex + 1)
                 : groupTitle;
+            String existingIdentifier = existingIdentifier(
+                previous,
+                animated,
+                partIndex
+            );
             Pack pack = writePack(
                 context,
                 new ArrayList<>(
@@ -149,10 +214,16 @@ final class GeneratedPackBuilder {
                 ),
                 partTitle,
                 publisher,
-                animated
+                animated,
+                existingIdentifier,
+                telegramSourceName,
+                partIndex
             );
             result.add(pack);
-            created.add(pack.identifier);
+            retained.add(pack.identifier);
+            if (existingIdentifier.isEmpty()) {
+                created.add(pack.identifier);
+            }
             offset += size;
         }
     }
@@ -162,9 +233,14 @@ final class GeneratedPackBuilder {
         List<Item> items,
         String title,
         String publisher,
-        boolean animated
+        boolean animated,
+        String existingIdentifier,
+        String telegramSourceName,
+        int telegramPartIndex
     ) throws IOException, JSONException {
-        String identifier = identifier(title);
+        String identifier = existingIdentifier.isEmpty()
+            ? identifier(title)
+            : existingIdentifier;
         File staging = new File(
             PackStore.root(context),
             ".generated-" + UUID.randomUUID().toString()
@@ -189,13 +265,36 @@ final class GeneratedPackBuilder {
                     index + 1
                 );
                 write(new File(staging, fileName), data);
+                String telegramFileName = "";
+                if (
+                    item.telegramSourceFile != null
+                    && item.telegramSourceFile.isFile()
+                    && validTelegramFormat(item.telegramSourceFormat)
+                ) {
+                    telegramFileName = String.format(
+                        Locale.ROOT,
+                        "telegram-%03d.%s",
+                        index + 1,
+                        telegramExtension(item.telegramSourceFormat)
+                    );
+                    copy(
+                        item.telegramSourceFile,
+                        new File(staging, telegramFileName),
+                        8 * 1024 * 1024
+                    );
+                }
                 stickers.add(
                     new Sticker(
                         fileName,
                         item.emojis,
                         item.accessibilityText.isEmpty()
                             ? title + " sticker " + (index + 1)
-                            : item.accessibilityText
+                            : item.accessibilityText,
+                        item.telegramSourceId,
+                        telegramFileName,
+                        telegramFileName.isEmpty()
+                            ? ""
+                            : item.telegramSourceFormat
                     )
                 );
             }
@@ -211,12 +310,12 @@ final class GeneratedPackBuilder {
                 "cover.png",
                 Long.toString(System.currentTimeMillis()),
                 animated,
-                stickers
+                stickers,
+                telegramSourceName,
+                telegramPartIndex
             );
             PackStore.writePack(staging, pack);
-            if (!staging.renameTo(destination)) {
-                throw new IOException("Cannot finish the generated pack.");
-            }
+            replace(staging, destination);
             return pack;
         } catch (IOException | JSONException | RuntimeException error) {
             try {
@@ -225,6 +324,88 @@ final class GeneratedPackBuilder {
                 // Keep the original build error.
             }
             throw error;
+        }
+    }
+
+    private static String existingIdentifier(
+        List<Pack> packs,
+        boolean animated,
+        int partIndex
+    ) {
+        for (Pack pack : packs) {
+            if (
+                pack.animated == animated
+                && pack.telegramPartIndex == partIndex
+            ) {
+                return pack.identifier;
+            }
+        }
+        return "";
+    }
+
+    private static void replace(File staging, File destination)
+        throws IOException {
+        if (!destination.exists()) {
+            if (!staging.renameTo(destination)) {
+                throw new IOException("Cannot finish the generated pack.");
+            }
+            return;
+        }
+        File backup = new File(
+            destination.getParentFile(),
+            ".backup-" + UUID.randomUUID().toString()
+        );
+        if (!destination.renameTo(backup)) {
+            throw new IOException("Cannot prepare the existing pack update.");
+        }
+        if (!staging.renameTo(destination)) {
+            backup.renameTo(destination);
+            throw new IOException("Cannot finish the updated pack.");
+        }
+        try {
+            PackStore.deleteTree(backup);
+        } catch (IOException ignored) {
+            // The updated pack is already complete; stale backup is harmless.
+        }
+    }
+
+    private static boolean validTelegramFormat(String value) {
+        return "static".equals(value)
+            || "animated".equals(value)
+            || "video".equals(value);
+    }
+
+    private static String telegramExtension(String format) {
+        if ("animated".equals(format)) {
+            return "tgs";
+        }
+        if ("video".equals(format)) {
+            return "webm";
+        }
+        return "webp";
+    }
+
+    private static void copy(
+        File source,
+        File destination,
+        int maximum
+    ) throws IOException {
+        try (
+            FileInputStream input = new FileInputStream(source);
+            FileOutputStream output = new FileOutputStream(destination)
+        ) {
+            byte[] buffer = new byte[8192];
+            int total = 0;
+            int count;
+            while ((count = input.read(buffer)) != -1) {
+                total += count;
+                if (total > maximum) {
+                    throw new IOException(
+                        "Telegram source sticker exceeds the safe limit."
+                    );
+                }
+                output.write(buffer, 0, count);
+            }
         }
     }
 

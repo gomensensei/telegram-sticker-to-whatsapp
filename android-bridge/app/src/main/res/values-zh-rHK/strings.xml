@@ -12,6 +12,7 @@
     <string name="start_conversion">開始轉換</string>
     <string name="tab_telegram">Telegram 貼圖包</string>
     <string name="tab_video">影片製作動態貼圖</string>
+    <string name="tab_packs">手機貼圖包</string>
     <string name="telegram_title">轉換 Telegram 貼圖包</string>
     <string name="telegram_hint">靜態 WEBP／PNG、TGS 同 WEBM 全部喺手機轉換，自動分開類型，再分成每包最多 30 張。</string>
     <string name="telegram_link_label">Telegram 貼圖包連結</string>
@@ -35,6 +36,7 @@
     <string name="enter_bot_token">請輸入 Telegram Bot Token。</string>
     <string name="telegram_starting">開始轉換 Telegram 貼圖包…</string>
     <string name="progress_reading_pack">正在讀取 Telegram 貼圖包資料…</string>
+    <string name="progress_reusing_sticker">第 %1$d/%2$d 張 · 沿用上次已轉換版本</string>
     <string name="progress_downloading_sticker">第 %1$d/%2$d 張 · 下載中 %3$d%%</string>
     <string name="progress_converting_sticker">第 %1$d/%2$d 張 · 動圖轉換中 %3$d%%</string>
     <string name="progress_building_packs">正在驗證同建立 WhatsApp 貼圖包…</string>
@@ -43,7 +45,7 @@
     <string name="progress_waiting">•••</string>
     <string name="progress_error_symbol">!</string>
     <string name="conversion_ready">轉換完成 · 準備開啟 WhatsApp</string>
-    <string name="telegram_done">已轉換 %1$s：%2$d 張普通圖＋%3$d 張動圖，共 %4$d 個 WhatsApp 貼圖包。</string>
+    <string name="telegram_sync_done">已同步 %1$s：%2$d 張普通圖＋%3$d 張動圖，共 %4$d 個 WhatsApp 貼圖包；今次只轉換 %5$d 張新貼圖，沿用 %6$d 張。</string>
     <string name="telegram_failed">Telegram 轉換失敗：%1$s</string>
     <string name="token_removed">已從手機移除保存嘅 Telegram Bot Token。</string>
     <string name="telegram_link_received">已收到 Telegram 貼圖包連結，請按一鍵轉換。</string>
@@ -95,6 +97,8 @@
     <string name="pack_build_failed">建立貼圖包失敗：%1$s</string>
 
     <string name="import_title">匯入現有貼圖包</string>
+    <string name="pack_manager_title">管理手機貼圖包</string>
+    <string name="pack_manager_hint">可以加入 WhatsApp、轉返去 Telegram、匯入或刪除，唔使再碌過轉換工具。</string>
     <string name="import_hint">開啟電腦版 .wastickers，驗證完成先交俾 WhatsApp。</string>
     <string name="import_wastickers">匯入 .wastickers</string>
     <string name="importing">正在匯入同驗證…</string>
@@ -108,8 +112,21 @@
     <string name="pack_details">%1$d 張%2$s貼圖 · %3$s</string>
     <string name="added_whatsapp">已加入 WhatsApp</string>
     <string name="add_whatsapp">加入 WhatsApp</string>
+    <string name="update_whatsapp">更新 WhatsApp 入面嘅貼圖包</string>
     <string name="added_business">已加入 Business</string>
     <string name="add_business">加入 Business</string>
+    <string name="update_business">更新 Business 入面嘅貼圖包</string>
+    <string name="add_telegram">轉返去 Telegram</string>
+    <string name="telegram_export_starting">正在準備將 %1$s 送去 Telegram…</string>
+    <string name="telegram_export_progress">第 %1$d/%2$d 張 Telegram 貼圖 · 準備中 %3$d%%</string>
+    <string name="telegram_export_failed">Telegram 匯出失敗：%1$s</string>
+    <string name="telegram_export_opened">已喺 Telegram 開啟 %1$s；可以建立新包，或者加入你擁有嘅貼圖包。</string>
+    <string name="telegram_export_video_notice">本機製作嘅 Animated WebP 已轉成會郁嘅 VP9，並為 Telegram 另外保留透明 alpha 串流。</string>
+    <string name="telegram_missing">手機未安裝 Telegram，或者此版本唔支援匯入貼圖包。</string>
+    <string name="telegram_video_needs_token">匯出 Telegram 影片貼圖需要已保存嘅 Bot Token；請返 Telegram 分頁先保存一次。</string>
+    <string name="telegram_bot_upload_progress">正在建立真正 Telegram 影片貼圖包… %1$d%%</string>
+    <string name="telegram_video_pack_created">已將 %1$s 建立成 Telegram 影片貼圖包，並開啟安裝頁。</string>
+    <string name="telegram_video_pack_link">Telegram 貼圖包已建立：%1$s</string>
     <string name="whatsapp_missing">手機未安裝 WhatsApp。</string>
     <string name="delete">刪除</string>
     <string name="whatsapp_open_failed">WhatsApp 無法開啟呢個貼圖包。</string>

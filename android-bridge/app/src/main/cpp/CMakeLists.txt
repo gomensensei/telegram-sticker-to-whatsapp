@@ -28,6 +28,7 @@ add_library(
     tgwa_maker
     SHARED
     native_webp_encoder.cpp
+    native_image_tools.cpp
 )
 
 find_library(android-lib android)
@@ -38,6 +39,7 @@ target_link_libraries(
     tgwa_maker
     PRIVATE
     libwebpmux
+    webpdemux
     webp
     ${android-lib}
     ${jnigraphics-lib}

@@ -1,11 +1,14 @@
 # TGWA Maker Android
 
-TGWA Maker 2.1.5 is an on-phone Telegram/WhatsApp sticker converter and video
+TGWA Maker 2.2.0 is an on-phone Telegram/WhatsApp sticker converter and video
 sticker maker.
 
 ## Features
 
 - Downloads a complete Telegram sticker set through the official Bot API.
+- Incrementally syncs a previously converted Telegram set by its stable
+  `file_unique_id`, reusing completed WebP renders and processing only new
+  stickers. Existing 2.1.5 packs are migrated once by pack order.
 - Converts static WebP/PNG, TGS, and WEBM stickers on the phone.
 - Separates static and animated stickers, then splits each type into valid
   3–30-sticker packs without duplicating stickers.
@@ -13,12 +16,19 @@ sticker maker.
   and transparent/black/white backgrounds.
 - Encodes real Animated WebP through JNI and libwebp `WebPAnimEncoder`.
 - Imports existing `.wastickers` archives.
+- Adds a dedicated on-phone pack-manager tab instead of placing saved packs
+  underneath both converters.
+- Sends saved packs back through Telegram's official Android sticker-import
+  intent. Original Telegram TGS/WEBM files are preserved; locally made
+  Animated WebP is converted to moving VP9 WEBM with a separate alpha stream
+  when the device supports it. Video packs are created through the official
+  Bot API because Telegram's Android import intent does not recognise WEBM.
 - Adds packs to WhatsApp or WhatsApp Business through the official provider
   and enable-pack intent contract.
 - Encrypts the Telegram Bot Token with Android Keystore. It is never included
   in a pack, log, or build artifact.
-- Matches the desktop tool's dark green card layout with separate Telegram and
-  video-maker tabs.
+- Matches the desktop tool's dark green card layout with Telegram, video-maker,
+  and saved-pack tabs.
 - Includes an in-app English / Traditional Chinese (Hong Kong) switch and
   keeps the current form and selected video when the language changes.
 - Provides paste, show/hide, saved-state, forget, and BotFather shortcuts for
@@ -33,6 +43,8 @@ sticker maker.
 - Detects crop-relative and already-cropped plane origins and safely reuses the
   final valid chroma sample when a vendor decoder truncates the last chroma
   row or column of an odd-sized frame.
+- Converts decoder YUV planes to RGBA in native C++ instead of a Java
+  per-pixel loop, reducing the slowest part of phone-side video conversion.
 - Decodes each WEBM clip once into a guarded composed-frame cache and reuses
   those frames across quality/FPS attempts. Low-memory devices retain the
   compatibility path.
