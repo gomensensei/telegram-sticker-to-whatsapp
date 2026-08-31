@@ -102,4 +102,8 @@ final class Pack {
             source.optInt("telegram_part_index", -1)
         );
     }
+
+    boolean whatsappEligible() {
+        return stickers.size() >= 3 && stickers.size() <= 30;
+    }
 }

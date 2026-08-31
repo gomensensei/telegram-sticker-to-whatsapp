@@ -24,6 +24,9 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.zip.GZIPOutputStream;
 
 @RunWith(AndroidJUnit4.class)
@@ -176,6 +179,154 @@ public final class MakerInstrumentedTest {
         byte[] data = StaticStickerRenderer.render(png.toByteArray());
         assertFalse(WebpInspector.inspect(data).animated);
         assertTrue(data.length <= 100 * 1024);
+    }
+
+    @Test
+    public void makerAppendsWithoutReplacingThePackIdentity()
+        throws Exception {
+        Context context = InstrumentationRegistry
+            .getInstrumentation()
+            .getTargetContext();
+        Bitmap source = Bitmap.createBitmap(
+            300,
+            180,
+            Bitmap.Config.ARGB_8888
+        );
+        source.eraseColor(Color.MAGENTA);
+        ByteArrayOutputStream png = new ByteArrayOutputStream();
+        try {
+            assertTrue(source.compress(Bitmap.CompressFormat.PNG, 100, png));
+        } finally {
+            source.recycle();
+        }
+        byte[] sticker = StaticStickerRenderer.render(png.toByteArray());
+        File queued = new File(context.getCacheDir(), "append-static.webp");
+        try (FileOutputStream output = new FileOutputStream(queued)) {
+            output.write(sticker);
+        }
+        Pack first = null;
+        try {
+            first = MakerPackBuilder.build(
+                context,
+                Collections.singletonList(queued),
+                "Append Test " + System.currentTimeMillis(),
+                "ゴメン先生",
+                false,
+                null
+            );
+            assertEquals(1, first.stickers.size());
+            assertFalse(first.whatsappEligible());
+            Pack second = MakerPackBuilder.build(
+                context,
+                Collections.singletonList(queued),
+                first.name,
+                first.publisher,
+                false,
+                first
+            );
+            assertEquals(first.identifier, second.identifier);
+            assertEquals(2, second.stickers.size());
+            assertFalse(second.whatsappEligible());
+            Pack third = MakerPackBuilder.build(
+                context,
+                Collections.singletonList(queued),
+                second.name,
+                second.publisher,
+                false,
+                second
+            );
+            assertEquals(first.identifier, third.identifier);
+            assertEquals(3, third.stickers.size());
+            assertTrue(third.whatsappEligible());
+        } finally {
+            queued.delete();
+            if (first != null) {
+                PackStore.delete(context, first.identifier);
+            }
+        }
+    }
+
+    @Test
+    public void telegramIncrementOnlyCreatesOrUpdatesTheTailPart()
+        throws Exception {
+        Context context = InstrumentationRegistry
+            .getInstrumentation()
+            .getTargetContext();
+        Bitmap source = Bitmap.createBitmap(
+            256,
+            256,
+            Bitmap.Config.ARGB_8888
+        );
+        source.eraseColor(Color.CYAN);
+        ByteArrayOutputStream png = new ByteArrayOutputStream();
+        try {
+            assertTrue(source.compress(Bitmap.CompressFormat.PNG, 100, png));
+        } finally {
+            source.recycle();
+        }
+        byte[] sticker = StaticStickerRenderer.render(png.toByteArray());
+        File rendered = new File(
+            context.getCacheDir(),
+            "increment-static.webp"
+        );
+        try (FileOutputStream output = new FileOutputStream(rendered)) {
+            output.write(sticker);
+        }
+        String sourceName = "increment_" + System.currentTimeMillis();
+        try {
+            List<Pack> first = GeneratedPackBuilder.buildSplit(
+                context,
+                telegramItems(rendered, 30),
+                Collections.emptyList(),
+                "Increment Test",
+                "ゴメン先生",
+                sourceName
+            );
+            assertEquals(1, first.size());
+            Pack stable = first.get(0);
+            List<Pack> second = GeneratedPackBuilder.buildSplit(
+                context,
+                telegramItems(rendered, 34),
+                Collections.emptyList(),
+                "Increment Test",
+                "ゴメン先生",
+                sourceName
+            );
+            assertEquals(2, second.size());
+            assertEquals(stable.identifier, second.get(0).identifier);
+            assertEquals(
+                stable.imageDataVersion,
+                second.get(0).imageDataVersion
+            );
+            assertEquals(30, second.get(0).stickers.size());
+            assertEquals(4, second.get(1).stickers.size());
+            assertTrue(second.get(1).whatsappEligible());
+        } finally {
+            rendered.delete();
+            for (Pack pack : PackStore.findTelegramSource(context, sourceName)) {
+                PackStore.delete(context, pack.identifier);
+            }
+        }
+    }
+
+    private static List<GeneratedPackBuilder.Item> telegramItems(
+        File rendered,
+        int count
+    ) {
+        List<GeneratedPackBuilder.Item> items = new ArrayList<>();
+        for (int index = 0; index < count; index++) {
+            items.add(
+                new GeneratedPackBuilder.Item(
+                    rendered,
+                    Collections.singletonList("✨"),
+                    "Telegram sticker " + (index + 1),
+                    "unique-" + index,
+                    null,
+                    "static"
+                )
+            );
+        }
+        return items;
     }
 
     @Test

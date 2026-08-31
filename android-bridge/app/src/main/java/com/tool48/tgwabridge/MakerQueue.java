@@ -20,7 +20,11 @@ final class MakerQueue {
     }
 
     static List<File> list(Context context) {
-        File[] files = root(context).listFiles(
+        return list(context, true);
+    }
+
+    static List<File> list(Context context, boolean animated) {
+        File[] files = root(context, animated).listFiles(
             file -> file.isFile() && file.getName().endsWith(".webp")
         );
         if (files == null) {
@@ -31,12 +35,17 @@ final class MakerQueue {
     }
 
     static File add(Context context, byte[] data) throws IOException {
-        List<File> current = list(context);
+        return add(context, data, true);
+    }
+
+    static File add(Context context, byte[] data, boolean animated)
+        throws IOException {
+        List<File> current = list(context, animated);
         if (current.size() >= MAX_ITEMS) {
             throw new IOException("The maker queue already has 30 stickers.");
         }
-        validate(data);
-        File directory = root(context);
+        validate(data, animated);
+        File directory = root(context, animated);
         if (!directory.isDirectory() && !directory.mkdirs()) {
             throw new IOException("Cannot create the maker queue.");
         }
@@ -56,7 +65,12 @@ final class MakerQueue {
     }
 
     static void removeLast(Context context) throws IOException {
-        List<File> items = list(context);
+        removeLast(context, true);
+    }
+
+    static void removeLast(Context context, boolean animated)
+        throws IOException {
+        List<File> items = list(context, animated);
         if (items.isEmpty()) {
             return;
         }
@@ -67,7 +81,12 @@ final class MakerQueue {
     }
 
     static void clear(Context context) throws IOException {
-        for (File file : list(context)) {
+        clear(context, true);
+    }
+
+    static void clear(Context context, boolean animated)
+        throws IOException {
+        for (File file : list(context, animated)) {
             if (!file.delete()) {
                 throw new IOException(
                     "Cannot clear queued sticker " + file.getName() + "."
@@ -76,28 +95,40 @@ final class MakerQueue {
         }
     }
 
-    private static File root(Context context) {
-        return new File(context.getFilesDir(), "maker_queue");
+    private static File root(Context context, boolean animated) {
+        return new File(
+            context.getFilesDir(),
+            animated ? "maker_queue" : "static_maker_queue"
+        );
     }
 
-    private static void validate(byte[] data) throws IOException {
+    private static void validate(byte[] data, boolean animated)
+        throws IOException {
         if (data == null || data.length == 0) {
-            throw new IOException("Animated WebP output is empty.");
+            throw new IOException("WebP output is empty.");
         }
-        if (data.length > MAX_FILE_BYTES) {
-            throw new IOException("Animated WebP exceeds 500 KB.");
+        int limit = animated ? MAX_FILE_BYTES : 100 * 1024;
+        if (data.length > limit) {
+            throw new IOException(
+                animated
+                    ? "Animated WebP exceeds 500 KB."
+                    : "Static WebP exceeds 100 KB."
+            );
         }
         WebpInspector.Result animation = WebpInspector.inspect(data);
-        if (!animation.animated || animation.frameCount < 2) {
+        if (animated && (!animation.animated || animation.frameCount < 2)) {
             throw new IOException(
                 "Animated WebP does not contain multiple real frames."
             );
+        }
+        if (!animated && animation.animated) {
+            throw new IOException("Static WebP unexpectedly contains animation.");
         }
         BitmapFactory.Options bounds = new BitmapFactory.Options();
         bounds.inJustDecodeBounds = true;
         BitmapFactory.decodeByteArray(data, 0, data.length, bounds);
         if (bounds.outWidth != 512 || bounds.outHeight != 512) {
-            throw new IOException("Animated WebP must be exactly 512 x 512.");
+            throw new IOException("WebP must be exactly 512 x 512.");
         }
     }
 }

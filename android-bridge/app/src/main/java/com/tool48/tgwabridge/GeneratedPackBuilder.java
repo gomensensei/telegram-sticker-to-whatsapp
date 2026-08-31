@@ -86,13 +86,11 @@ final class GeneratedPackBuilder {
         String publisher,
         String telegramSourceName
     ) throws IOException, JSONException {
-        validateMinimum(staticItems, "static");
-        validateMinimum(animatedItems, "animated");
         if (staticItems.isEmpty() && animatedItems.isEmpty()) {
             throw new IOException("There are no stickers to build.");
         }
         String cleanTitle = clean(title, "Telegram Sticker Pack", 128);
-        String cleanPublisher = clean(publisher, "TGWA Maker", 128);
+        String cleanPublisher = clean(publisher, "ゴメン先生", 128);
         boolean mixed = !staticItems.isEmpty() && !animatedItems.isEmpty();
         List<Pack> result = new ArrayList<>();
         List<String> created = new ArrayList<>();
@@ -175,6 +173,34 @@ final class GeneratedPackBuilder {
         return packs.get(0);
     }
 
+    static Pack buildSingle(
+        Context context,
+        List<Item> items,
+        String title,
+        String publisher,
+        boolean animated,
+        Pack existing
+    ) throws IOException, JSONException {
+        if (items.isEmpty() || items.size() > 30) {
+            throw new IOException("A sticker pack needs 1 to 30 stickers.");
+        }
+        Pack pack = writePack(
+            context,
+            items,
+            clean(title, "Sticker Pack", 128),
+            clean(publisher, "ゴメン先生", 128),
+            animated,
+            existing == null ? "" : existing.identifier,
+            existing == null ? "" : existing.telegramSourceName,
+            existing == null ? -1 : existing.telegramPartIndex
+        );
+        context.getContentResolver().notifyChange(
+            StickerContentProvider.AUTHORITY_URI,
+            null
+        );
+        return pack;
+    }
+
     private static void buildGroup(
         Context context,
         List<Item> items,
@@ -199,19 +225,36 @@ final class GeneratedPackBuilder {
         int offset = 0;
         for (int partIndex = 0; partIndex < sizes.size(); partIndex++) {
             int size = sizes.get(partIndex);
-            String partTitle = sizes.size() > 1
+            String proposedTitle = sizes.size() > 1
                 ? groupTitle + " - Part " + (partIndex + 1)
                 : groupTitle;
-            String existingIdentifier = existingIdentifier(
+            Pack existingPack = existingPack(
                 previous,
                 animated,
                 partIndex
             );
+            String partTitle = existingPack == null
+                ? proposedTitle
+                : existingPack.name;
+            List<Item> partItems = new ArrayList<>(
+                items.subList(offset, offset + size)
+            );
+            if (
+                existingPack != null
+                && existingPack.publisher.equals(publisher)
+                && unchangedTelegramPart(context, existingPack, partItems)
+            ) {
+                result.add(existingPack);
+                retained.add(existingPack.identifier);
+                offset += size;
+                continue;
+            }
+            String existingIdentifier = existingPack == null
+                ? ""
+                : existingPack.identifier;
             Pack pack = writePack(
                 context,
-                new ArrayList<>(
-                    items.subList(offset, offset + size)
-                ),
+                partItems,
                 partTitle,
                 publisher,
                 animated,
@@ -327,7 +370,7 @@ final class GeneratedPackBuilder {
         }
     }
 
-    private static String existingIdentifier(
+    private static Pack existingPack(
         List<Pack> packs,
         boolean animated,
         int partIndex
@@ -337,10 +380,52 @@ final class GeneratedPackBuilder {
                 pack.animated == animated
                 && pack.telegramPartIndex == partIndex
             ) {
-                return pack.identifier;
+                return pack;
             }
         }
-        return "";
+        return null;
+    }
+
+    private static boolean unchangedTelegramPart(
+        Context context,
+        Pack existing,
+        List<Item> items
+    ) {
+        if (existing.stickers.size() != items.size()) {
+            return false;
+        }
+        File directory = PackStore.packDirectory(
+            context,
+            existing.identifier
+        );
+        for (int index = 0; index < items.size(); index++) {
+            Sticker stored = existing.stickers.get(index);
+            String sourceId = items.get(index).telegramSourceId;
+            if (
+                sourceId.isEmpty()
+                || !sourceId.equals(stored.telegramSourceId)
+                || !items.get(index).emojis.equals(stored.emojis)
+                || !new File(directory, stored.fileName).isFile()
+            ) {
+                return false;
+            }
+            if (
+                items.get(index).telegramSourceFile != null
+                && (
+                    stored.telegramSourceFile.isEmpty()
+                    || !items.get(index).telegramSourceFormat.equals(
+                        stored.telegramSourceFormat
+                    )
+                    || !new File(
+                        directory,
+                        stored.telegramSourceFile
+                    ).isFile()
+                )
+            ) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static void replace(File staging, File destination)
@@ -434,20 +519,6 @@ final class GeneratedPackBuilder {
         if (bounds.outWidth != 512 || bounds.outHeight != 512) {
             throw new IOException(
                 "Sticker " + index + " is not exactly 512 x 512."
-            );
-        }
-    }
-
-    private static void validateMinimum(List<Item> items, String type)
-        throws IOException {
-        if (!items.isEmpty() && items.size() < 3) {
-            throw new IOException(
-                "After separating static and animated stickers, the "
-                    + type
-                    + " pack has only "
-                    + items.size()
-                    + ". WhatsApp requires at least 3; TGWA Maker will not "
-                    + "duplicate stickers."
             );
         }
     }

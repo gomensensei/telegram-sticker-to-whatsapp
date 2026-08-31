@@ -20,6 +20,10 @@
   `.wastickers` 貼圖包
 - 附送 Android `TGWA Maker`，可在手機直接轉 Telegram／影片，亦可開啟
   `.wastickers` 及交給 WhatsApp
+- Android 可直接揀圖片製作靜態貼圖，亦可選擇建立新包或者只追加去相同類型
+  嘅手機現有貼圖包
+- Telegram 同一連結再次同步時會沿用已轉換貼圖；完整 30 張 Part 保持不變，
+  只新增／更新尾段 Part
 - 手機 QR Code 傳送，不用人手逐張搬檔
 - 完成後可在電腦直接下載每個輸出檔案
 
@@ -120,7 +124,7 @@ WhatsApp 官方格式重點（貼圖包模式）：
 但不能用 Android `Bitmap.compress()` 將影片逐格「另存 WebP」代替真正動畫
 編碼；該路徑只會產生單幀 WebP，加入 WhatsApp 後就會變定格。
 
-`TGWA Maker 2.3.0` 已在 APK 內完成：
+`TGWA Maker 2.4.0` 已在 APK 內完成：
 
 - 貼上 Telegram sticker pack 連結後，直接以 Bot API 下載整包。
 - 靜態 WebP／PNG、TGS 及 WEBM 分別解碼；TGS 由 Lottie 渲染，影片及 WEBM
@@ -131,12 +135,17 @@ WhatsApp 官方格式重點（貼圖包模式）：
   Animated WebP 取格同時間軸，並自動將最終輸出限制在 0.2–3 秒。
 - 影片仍可拖曳位置、手勢縮放，並選透明／黑／白背景。
 - 經 JNI 使用 `libwebp WebPAnimEncoder` 真正逐幀編碼 Animated WebP。
-- 動圖與普通圖自動分開，超過 30 張自動建立 Part 1、Part 2…，並避免產生
-  少於 3 張的尾包。
+- 動圖與普通圖自動分開，固定每 30 張建立 Part；第 31、32 張會先保存成可傳
+  Telegram 嘅尾包，WhatsApp 加入掣保持灰色，到第 33 張自動解鎖。
+- 同一 Telegram link 再同步會按 `file_unique_id` 只轉新貼圖；完整 Part 嘅
+  identifier、貼圖檔案同 `imageDataVersion` 保持不變，只更新有新增貼圖嘅 Part。
+- 可直接揀手機圖片製作靜態貼圖，支援拖曳位置、雙指縮放同透明／黑／白背景；
+  靜態同動態 Maker 都可以建立新包，或者只追加去現有同類貼圖包。
 - 正式下載 APK 預設使用內置共享 Bot，Token 欄位保持隱藏；只有按
   「自訂 Token／API」先會打開第三方 Bot 設定。自訂 Token 仍由 Android
   Keystore 加密，只留在手機。
-- APK 介面跟本機版深綠卡片排版，Telegram 轉換同影片 Maker 分成兩個分頁。
+- APK 介面跟本機版深綠卡片排版，Telegram 轉換、靜態／動態 Maker 同手機貼圖包
+  管理分成三個分頁；貼圖包作者預設為 `ゴメン先生`，並換上新 mascot app icon。
 - 內置繁體中文（香港）／英文切換；切換時保留已填連結、Token、包名同已選影片。
 - 內置共享 Token 以建置時混淆資料放入 APK，原始明文不會提交到 Git；但 APK
   內憑證無法做到真正保密，熟悉反編譯的人仍有機會抽出，因此不應視作私密金鑰庫。

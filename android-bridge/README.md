@@ -1,7 +1,7 @@
 # TGWA Maker Android
 
-TGWA Maker 2.3.0 is an on-phone Telegram/WhatsApp sticker converter and video
-sticker maker.
+TGWA Maker 2.4.0 is an on-phone Telegram/WhatsApp sticker converter and static
+or animated sticker maker.
 
 ## Features
 
@@ -10,8 +10,16 @@ sticker maker.
   `file_unique_id`, reusing completed WebP renders and processing only new
   stickers. Existing 2.1.5 packs are migrated once by pack order.
 - Converts static WebP/PNG, TGS, and WEBM stickers on the phone.
-- Separates static and animated stickers, then splits each type into valid
-  3–30-sticker packs without duplicating stickers.
+- Separates static and animated stickers into stable 30-sticker Parts. A tail
+  Part with 1–2 stickers remains saved and exportable to Telegram; only its
+  WhatsApp button stays disabled until it reaches 3.
+- Keeps completed 30-sticker Parts byte-for-byte unchanged during later
+  Telegram syncs and updates only the affected tail Part.
+- Makes static stickers from phone images with drag, pinch scaling, position,
+  and transparent/black/white backgrounds, compressed to 512 × 512 under
+  100 KB.
+- Lets a locally made static or animated sticker create a new pack or append
+  to a compatible existing pack while preserving that pack's identifier.
 - Provides separate start/end selectors with thumbnails, an exact
   `MM:SS.mmm → MM:SS.mmm` range, a selected-segment preview, and a final
   timing preview.
@@ -33,8 +41,10 @@ sticker maker.
 - Uses an obfuscated build-time shared Bot credential by default, with the
   token editor hidden behind `Customize token/API`. A third-party token
   overrides it and is encrypted with Android Keystore on the phone.
-- Matches the desktop tool's dark green card layout with Telegram, video-maker,
+- Matches the desktop tool's dark green card layout with Telegram, sticker-maker,
   and saved-pack tabs.
+- Defaults the pack publisher to `ゴメン先生` and includes an expressive
+  Telegram-to-WhatsApp mascot launcher icon.
 - Includes an in-app English / Traditional Chinese (Hong Kong) switch and
   keeps the current form and selected video when the language changes.
 - Provides paste, show/hide, saved-state, forget, and BotFather shortcuts for

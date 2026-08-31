@@ -31,6 +31,7 @@ final class VideoPreviewView extends View {
     private VideoStickerSettings.Background background =
         VideoStickerSettings.Background.TRANSPARENT;
     private TransformListener listener;
+    private int emptyMessageRes = R.string.no_video;
 
     VideoPreviewView(Context context) {
         super(context);
@@ -79,6 +80,11 @@ final class VideoPreviewView extends View {
         listener = value;
     }
 
+    void setEmptyMessage(int stringResource) {
+        emptyMessageRes = stringResource;
+        invalidate();
+    }
+
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
@@ -89,7 +95,7 @@ final class VideoPreviewView extends View {
         if (source == null || source.isRecycled()) {
             messagePaint.setTextSize(side / 18f);
             canvas.drawText(
-                getContext().getString(R.string.no_video),
+                getContext().getString(emptyMessageRes),
                 getWidth() / 2f,
                 getHeight() / 2f,
                 messagePaint

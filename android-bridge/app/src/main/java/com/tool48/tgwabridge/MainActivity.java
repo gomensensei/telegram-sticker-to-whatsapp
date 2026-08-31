@@ -45,6 +45,7 @@ import java.util.concurrent.Executors;
 public final class MainActivity extends Activity {
     private static final int PICK_ARCHIVE = 48;
     private static final int PICK_VIDEO = 49;
+    private static final int PICK_IMAGE = 50;
     private static final int ENABLE_PACK = 200;
     private static final String WHATSAPP = "com.whatsapp";
     private static final String WHATSAPP_BUSINESS = "com.whatsapp.w4b";
@@ -60,6 +61,9 @@ public final class MainActivity extends Activity {
     private static final int MINT_STRONG = Color.rgb(37, 211, 102);
     private static final int DANGER = Color.rgb(255, 127, 127);
     private static final String STATE_VIDEO = "state_video";
+    private static final String STATE_IMAGE = "state_image";
+    private static final String STATE_MAKER_MODE = "state_maker_mode";
+    private static final String STATE_MAKER_TARGET = "state_maker_target";
     private static final String STATE_LINK = "state_link";
     private static final String STATE_TOKEN = "state_token";
     private static final String STATE_TG_PUBLISHER = "state_tg_publisher";
@@ -113,6 +117,8 @@ public final class MainActivity extends Activity {
     private SeekBar positionYSeek;
     private Spinner backgroundSpinner;
     private Spinner speedSpinner;
+    private Spinner makerModeSpinner;
+    private Spinner makerTargetSpinner;
     private ImageView startThumbnail;
     private ImageView endThumbnail;
     private ProgressBar makerProgress;
@@ -131,7 +137,9 @@ public final class MainActivity extends Activity {
     private LinearLayout telegramPanel;
     private LinearLayout makerPanel;
     private LinearLayout packPanel;
+    private LinearLayout makerVideoControls;
     private Uri selectedVideoUri;
+    private Uri selectedImageUri;
     private long selectedVideoDurationMs;
     private int previewGeneration;
     private int thumbnailGeneration;
@@ -157,6 +165,8 @@ public final class MainActivity extends Activity {
     private int autoAddTotal;
     private int autoAddCompleted;
     private String autoAddTargetPackage = WHATSAPP;
+    private final ArrayList<Pack> makerTargetPacks = new ArrayList<>();
+    private String selectedMakerTargetId = "";
 
     @Override
     protected void attachBaseContext(Context newBase) {
@@ -169,6 +179,19 @@ public final class MainActivity extends Activity {
         getWindow().setStatusBarColor(INK);
         getWindow().setNavigationBarColor(INK);
         getWindow().getDecorView().setSystemUiVisibility(0);
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            android.view.WindowInsetsController controller =
+                getWindow().getInsetsController();
+            if (controller != null) {
+                controller.setSystemBarsAppearance(
+                    0,
+                    android.view.WindowInsetsController
+                        .APPEARANCE_LIGHT_STATUS_BARS
+                        | android.view.WindowInsetsController
+                            .APPEARANCE_LIGHT_NAVIGATION_BARS
+                );
+            }
+        }
         buildInterface();
         restoreInterfaceState(savedInstanceState);
         refreshPacks();
@@ -181,6 +204,16 @@ public final class MainActivity extends Activity {
         if (selectedVideoUri != null) {
             outState.putString(STATE_VIDEO, selectedVideoUri.toString());
         }
+        if (selectedImageUri != null) {
+            outState.putString(STATE_IMAGE, selectedImageUri.toString());
+        }
+        outState.putInt(
+            STATE_MAKER_MODE,
+            makerModeSpinner == null
+                ? 0
+                : makerModeSpinner.getSelectedItemPosition()
+        );
+        outState.putString(STATE_MAKER_TARGET, selectedMakerTargetId);
         outState.putString(STATE_LINK, valueOf(telegramLink));
         outState.putString(STATE_TOKEN, valueOf(telegramToken));
         outState.putString(
@@ -239,6 +272,18 @@ public final class MainActivity extends Activity {
             loadSelectedVideo();
             return;
         }
+        if (
+            requestCode == PICK_IMAGE
+            && resultCode == RESULT_OK
+            && data != null
+            && data.getData() != null
+        ) {
+            Uri uri = data.getData();
+            takeReadPermission(uri, data);
+            selectedImageUri = uri;
+            loadSelectedImage();
+            return;
+        }
         if (requestCode == ENABLE_PACK) {
             String validationError = data == null
                 ? ""
@@ -281,6 +326,16 @@ public final class MainActivity extends Activity {
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         scroll.setBackgroundColor(INK);
+        scroll.setClipToPadding(true);
+        scroll.setOnApplyWindowInsetsListener((view, insets) -> {
+            view.setPadding(
+                0,
+                insets.getSystemWindowInsetTop(),
+                0,
+                insets.getSystemWindowInsetBottom()
+            );
+            return insets;
+        });
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(18), dp(18), dp(18), dp(36));
@@ -1008,6 +1063,29 @@ public final class MainActivity extends Activity {
         if (packs == null || packs.isEmpty()) {
             return;
         }
+        ArrayList<Pack> eligible = new ArrayList<>();
+        for (Pack pack : packs) {
+            if (pack.whatsappEligible()) {
+                eligible.add(pack);
+            }
+        }
+        if (eligible.isEmpty()) {
+            autoAddingPacks = false;
+            pendingAutoAddPackIds.clear();
+            String telegramOnly = getString(
+                R.string.whatsapp_auto_none_eligible
+            );
+            showTelegramProgress(100, telegramOnly, false);
+            setPackStatus(telegramOnly);
+            return;
+        }
+        if (eligible.size() != packs.size()) {
+            Toast.makeText(
+                this,
+                R.string.whatsapp_parts_skipped,
+                Toast.LENGTH_LONG
+            ).show();
+        }
         if (isInstalled(WHATSAPP)) {
             autoAddTargetPackage = WHATSAPP;
         } else if (isInstalled(WHATSAPP_BUSINESS)) {
@@ -1023,7 +1101,7 @@ public final class MainActivity extends Activity {
             return;
         }
         pendingAutoAddPackIds.clear();
-        for (Pack pack : packs) {
+        for (Pack pack : eligible) {
             pendingAutoAddPackIds.add(pack.identifier);
         }
         autoAddTotal = pendingAutoAddPackIds.size();
@@ -1185,9 +1263,23 @@ public final class MainActivity extends Activity {
         hintParams.topMargin = dp(6);
         root.addView(sectionHint, hintParams);
 
+        addFieldLabel(root, getString(R.string.maker_type), 14);
+        makerModeSpinner = new Spinner(this);
+        makerModeSpinner.setAdapter(
+            darkSpinnerAdapter(
+                new String[] {
+                    getString(R.string.maker_type_animated),
+                    getString(R.string.maker_type_static)
+                }
+            )
+        );
+        makerModeSpinner.setPadding(dp(12), dp(4), dp(12), dp(4));
+        makerModeSpinner.setBackground(rounded(FIELD, 13, LINE));
+        root.addView(makerModeSpinner, matchWrap());
+
         chooseVideoButton = addButton(
             getString(R.string.choose_video),
-            view -> pickVideo()
+            view -> pickMakerMedia()
         );
         styleSecondary(chooseVideoButton);
         LinearLayout.LayoutParams chooseParams = matchWrap();
@@ -1213,9 +1305,13 @@ public final class MainActivity extends Activity {
         previewParams.topMargin = dp(10);
         root.addView(videoPreview, previewParams);
 
+        makerVideoControls = new LinearLayout(this);
+        makerVideoControls.setOrientation(LinearLayout.VERTICAL);
+        root.addView(makerVideoControls, matchWrap());
+
         startSeek = new SeekBar(this);
         startValue = addSeekControl(
-            root,
+            makerVideoControls,
             getString(R.string.start_time),
             startSeek,
             "00:00.000"
@@ -1224,7 +1320,7 @@ public final class MainActivity extends Activity {
         endSeek.setMax(3_000);
         endSeek.setProgress(3_000);
         endValue = addSeekControl(
-            root,
+            makerVideoControls,
             getString(R.string.end_time),
             endSeek,
             "00:03.000"
@@ -1242,7 +1338,7 @@ public final class MainActivity extends Activity {
         );
         LinearLayout.LayoutParams thumbnailsParams = matchWrap();
         thumbnailsParams.topMargin = dp(8);
-        root.addView(thumbnails, thumbnailsParams);
+        makerVideoControls.addView(thumbnails, thumbnailsParams);
 
         selectionRange = text(
             getString(
@@ -1259,7 +1355,7 @@ public final class MainActivity extends Activity {
         selectionRange.setBackground(rounded(SURFACE_2, 12, LINE));
         LinearLayout.LayoutParams rangeParams = matchWrap();
         rangeParams.topMargin = dp(8);
-        root.addView(selectionRange, rangeParams);
+        makerVideoControls.addView(selectionRange, rangeParams);
 
         previewClipButton = addButton(
             getString(R.string.preview_selected_segment),
@@ -1270,7 +1366,7 @@ public final class MainActivity extends Activity {
         previewClipButton.setAlpha(0.45f);
         LinearLayout.LayoutParams clipPreviewParams = matchWrap();
         clipPreviewParams.topMargin = dp(8);
-        root.addView(previewClipButton, clipPreviewParams);
+        makerVideoControls.addView(previewClipButton, clipPreviewParams);
 
         TextView speedLabel = text(
             getString(R.string.playback_speed),
@@ -1279,7 +1375,7 @@ public final class MainActivity extends Activity {
         );
         LinearLayout.LayoutParams speedLabelParams = matchWrap();
         speedLabelParams.topMargin = dp(12);
-        root.addView(speedLabel, speedLabelParams);
+        makerVideoControls.addView(speedLabel, speedLabelParams);
         speedSpinner = new Spinner(this);
         ArrayAdapter<String> speeds = darkSpinnerAdapter(
             new String[] {
@@ -1296,11 +1392,11 @@ public final class MainActivity extends Activity {
         speedSpinner.setSelection(3);
         speedSpinner.setPadding(dp(12), dp(4), dp(12), dp(4));
         speedSpinner.setBackground(rounded(FIELD, 13, LINE));
-        root.addView(speedSpinner, matchWrap());
+        makerVideoControls.addView(speedSpinner, matchWrap());
         adjustedDuration = text("", 13, MUTED);
         LinearLayout.LayoutParams adjustedParams = matchWrap();
         adjustedParams.topMargin = dp(6);
-        root.addView(adjustedDuration, adjustedParams);
+        makerVideoControls.addView(adjustedDuration, adjustedParams);
 
         scaleSeek = new SeekBar(this);
         scaleSeek.setMax(375);
@@ -1413,7 +1509,7 @@ public final class MainActivity extends Activity {
 
         renderVideoButton = addButton(
             getString(R.string.render_queue),
-            view -> renderSelectedVideo()
+            view -> renderSelectedMedia()
         );
         stylePrimary(renderVideoButton);
         renderVideoButton.setEnabled(false);
@@ -1470,6 +1566,12 @@ public final class MainActivity extends Activity {
         queueButtons.addView(clear, clearParams);
         root.addView(queueButtons, matchWrap());
 
+        addFieldLabel(root, getString(R.string.add_to_pack), 14);
+        makerTargetSpinner = new Spinner(this);
+        makerTargetSpinner.setPadding(dp(12), dp(4), dp(12), dp(4));
+        makerTargetSpinner.setBackground(rounded(FIELD, 13, LINE));
+        root.addView(makerTargetSpinner, matchWrap());
+
         addFieldLabel(root, getString(R.string.pack_name), 14);
         makerPackTitle = new EditText(this);
         makerPackTitle.setHint(R.string.pack_name);
@@ -1487,7 +1589,7 @@ public final class MainActivity extends Activity {
         root.addView(makerPackPublisher, matchWrap());
 
         buildMakerPackButton = addButton(
-            getString(R.string.build_animated_pack),
+            getString(R.string.build_sticker_pack),
             view -> buildMakerPack()
         );
         stylePrimary(buildMakerPackButton);
@@ -1498,6 +1600,7 @@ public final class MainActivity extends Activity {
         root.addView(buildMakerPackButton, buildPackParams);
 
         bindMakerControls();
+        bindMakerModeAndTarget();
     }
 
     private TextView addSeekControl(
@@ -1725,6 +1828,152 @@ public final class MainActivity extends Activity {
         updateMakerTransform();
     }
 
+    private void bindMakerModeAndTarget() {
+        makerModeSpinner.setOnItemSelectedListener(
+            new AdapterView.OnItemSelectedListener() {
+                @Override
+                public void onItemSelected(
+                    AdapterView<?> parent,
+                    View view,
+                    int position,
+                    long id
+                ) {
+                    if (view instanceof TextView) {
+                        ((TextView) view).setTextColor(TEXT);
+                    }
+                    selectedMakerTargetId = "";
+                    updateMakerMode();
+                }
+
+                @Override
+                public void onNothingSelected(AdapterView<?> parent) {
+                }
+            }
+        );
+        makerTargetSpinner.setOnItemSelectedListener(
+            new AdapterView.OnItemSelectedListener() {
+                @Override
+                public void onItemSelected(
+                    AdapterView<?> parent,
+                    View view,
+                    int position,
+                    long id
+                ) {
+                    if (view instanceof TextView) {
+                        ((TextView) view).setTextColor(TEXT);
+                    }
+                    Pack target = position > 0
+                        && position - 1 < makerTargetPacks.size()
+                        ? makerTargetPacks.get(position - 1)
+                        : null;
+                    selectedMakerTargetId = target == null
+                        ? ""
+                        : target.identifier;
+                    if (target != null) {
+                        makerPackTitle.setText(target.name);
+                        makerPackPublisher.setText(target.publisher);
+                    }
+                    refreshMakerQueue();
+                }
+
+                @Override
+                public void onNothingSelected(AdapterView<?> parent) {
+                }
+            }
+        );
+        updateMakerMode();
+    }
+
+    private boolean makerAnimatedMode() {
+        return makerModeSpinner == null
+            || makerModeSpinner.getSelectedItemPosition() == 0;
+    }
+
+    private void updateMakerMode() {
+        boolean animated = makerAnimatedMode();
+        makerVideoControls.setVisibility(
+            animated ? View.VISIBLE : View.GONE
+        );
+        previewFinalButton.setVisibility(
+            animated ? View.VISIBLE : View.GONE
+        );
+        chooseVideoButton.setText(
+            animated ? R.string.choose_video : R.string.choose_image
+        );
+        renderVideoButton.setText(
+            animated
+                ? R.string.render_queue
+                : R.string.render_static_queue
+        );
+        makerPackTitle.setText(
+            animated
+                ? R.string.animated_pack_default
+                : R.string.static_pack_default
+        );
+        videoInfo.setText(
+            animated ? R.string.no_video : R.string.no_image
+        );
+        videoPreview.setEmptyMessage(
+            animated ? R.string.no_video : R.string.no_image
+        );
+        refreshMakerTargets();
+        refreshMakerQueue();
+        setMakerBusy(false);
+        videoPreview.setSource(null);
+        if (animated && selectedVideoUri != null) {
+            loadSelectedVideo();
+        } else if (!animated && selectedImageUri != null) {
+            loadSelectedImage();
+        }
+    }
+
+    private void refreshMakerTargets() {
+        if (makerTargetSpinner == null) {
+            return;
+        }
+        boolean animated = makerAnimatedMode();
+        String preserve = selectedMakerTargetId;
+        makerTargetPacks.clear();
+        ArrayList<String> labels = new ArrayList<>();
+        labels.add(getString(R.string.create_new_pack));
+        int selected = 0;
+        for (Pack pack : PackStore.list(this)) {
+            if (pack.animated != animated || pack.stickers.size() >= 30) {
+                continue;
+            }
+            makerTargetPacks.add(pack);
+            labels.add(
+                getString(
+                    R.string.existing_pack_option,
+                    pack.name,
+                    pack.stickers.size()
+                )
+            );
+            if (pack.identifier.equals(preserve)) {
+                selected = makerTargetPacks.size();
+            }
+        }
+        makerTargetSpinner.setAdapter(
+            darkSpinnerAdapter(labels.toArray(new String[0]))
+        );
+        makerTargetSpinner.setSelection(selected);
+        if (selected == 0) {
+            selectedMakerTargetId = "";
+        }
+    }
+
+    private Pack selectedMakerTarget() {
+        if (selectedMakerTargetId.isEmpty()) {
+            return null;
+        }
+        Pack pack = PackStore.find(this, selectedMakerTargetId);
+        return pack != null
+            && pack.animated == makerAnimatedMode()
+            && pack.stickers.size() < 30
+            ? pack
+            : null;
+    }
+
     private SeekBar.OnSeekBarChangeListener simpleSeekListener() {
         return new SeekBar.OnSeekBarChangeListener() {
             @Override
@@ -1866,6 +2115,14 @@ public final class MainActivity extends Activity {
         return VideoStickerSettings.Background.TRANSPARENT;
     }
 
+    private void pickMakerMedia() {
+        if (makerAnimatedMode()) {
+            pickVideo();
+        } else {
+            pickImage();
+        }
+    }
+
     private void pickVideo() {
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
@@ -1873,6 +2130,15 @@ public final class MainActivity extends Activity {
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         intent.addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
         startActivityForResult(intent, PICK_VIDEO);
+    }
+
+    private void pickImage() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("image/*");
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        intent.addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        startActivityForResult(intent, PICK_IMAGE);
     }
 
     private void takeReadPermission(Uri uri, Intent data) {
@@ -1946,6 +2212,44 @@ public final class MainActivity extends Activity {
                     setMakerBusy(false);
                     renderVideoButton.setEnabled(false);
                     renderVideoButton.setAlpha(0.45f);
+                });
+            }
+        });
+    }
+
+    private void loadSelectedImage() {
+        if (selectedImageUri == null) {
+            return;
+        }
+        Uri uri = selectedImageUri;
+        setMakerBusy(true);
+        makerStatus.setText(R.string.reading_image);
+        executor.execute(() -> {
+            try {
+                Bitmap preview = StaticStickerRenderer.preview(this, uri);
+                int width = preview.getWidth();
+                int height = preview.getHeight();
+                mainHandler.post(() -> {
+                    if (!uri.equals(selectedImageUri)) {
+                        preview.recycle();
+                        return;
+                    }
+                    videoPreview.setSource(preview);
+                    videoInfo.setText(
+                        getString(R.string.image_info, width, height)
+                    );
+                    makerStatus.setText(R.string.image_gesture_help);
+                    setMakerBusy(false);
+                });
+            } catch (Exception error) {
+                mainHandler.post(() -> {
+                    makerStatus.setText(
+                        getString(
+                            R.string.image_failed,
+                            friendly(error)
+                        )
+                    );
+                    setMakerBusy(false);
                 });
             }
         });
@@ -2092,6 +2396,64 @@ public final class MainActivity extends Activity {
         );
     }
 
+    private void renderSelectedMedia() {
+        if (makerAnimatedMode()) {
+            renderSelectedVideo();
+        } else {
+            renderSelectedImage();
+        }
+    }
+
+    private void renderSelectedImage() {
+        if (selectedImageUri == null) {
+            makerStatus.setText(R.string.choose_image_first);
+            return;
+        }
+        Uri uri = selectedImageUri;
+        float scale = (scaleSeek.getProgress() + 25) / 100f;
+        float offsetX = (positionXSeek.getProgress() - 150) / 100f;
+        float offsetY = (positionYSeek.getProgress() - 150) / 100f;
+        VideoStickerSettings.Background background = selectedBackground();
+        setMakerBusy(true);
+        makerProgress.setProgress(0);
+        makerProgress.setVisibility(View.VISIBLE);
+        makerStatus.setText(R.string.rendering_static);
+        executor.execute(() -> {
+            try {
+                byte[] data = StaticStickerRenderer.render(
+                    this,
+                    uri,
+                    scale,
+                    offsetX,
+                    offsetY,
+                    background
+                );
+                MakerQueue.add(this, data, false);
+                mainHandler.post(() -> {
+                    makerProgress.setProgress(100);
+                    makerStatus.setText(
+                        getString(
+                            R.string.static_render_done,
+                            data.length / 1024
+                        )
+                    );
+                    setMakerBusy(false);
+                    refreshMakerQueue();
+                });
+            } catch (Exception error) {
+                mainHandler.post(() -> {
+                    makerStatus.setText(
+                        getString(
+                            R.string.render_failed,
+                            friendly(error)
+                        )
+                    );
+                    setMakerBusy(false);
+                });
+            }
+        });
+    }
+
     private void renderSelectedVideo() {
         if (selectedVideoUri == null) {
             makerStatus.setText(R.string.choose_video_first);
@@ -2156,19 +2518,29 @@ public final class MainActivity extends Activity {
     }
 
     private void refreshMakerQueue() {
-        List<File> items = MakerQueue.list(this);
+        boolean animated = makerAnimatedMode();
+        List<File> items = MakerQueue.list(this, animated);
+        Pack target = selectedMakerTarget();
+        int existingCount = target == null ? 0 : target.stickers.size();
         makerQueueCount.setText(
             getString(R.string.pack_queue, items.size())
         );
-        boolean canBuild = items.size() >= 3 && items.size() <= 30;
+        boolean canBuild = !items.isEmpty()
+            && items.size() + existingCount <= 30;
         buildMakerPackButton.setEnabled(canBuild);
         buildMakerPackButton.setAlpha(canBuild ? 1f : 0.45f);
+        buildMakerPackButton.setText(
+            target == null
+                ? R.string.build_sticker_pack
+                : R.string.add_to_selected_pack
+        );
     }
 
     private void removeLastMakerItem() {
+        boolean animated = makerAnimatedMode();
         executor.execute(() -> {
             try {
-                MakerQueue.removeLast(this);
+                MakerQueue.removeLast(this, animated);
                 mainHandler.post(() -> {
                     makerStatus.setText(R.string.removed_last);
                     refreshMakerQueue();
@@ -2187,6 +2559,7 @@ public final class MainActivity extends Activity {
     }
 
     private void confirmClearMakerQueue() {
+        boolean animated = makerAnimatedMode();
         new AlertDialog.Builder(this)
             .setTitle(R.string.clear_queue_title)
             .setMessage(R.string.clear_queue_message)
@@ -2194,7 +2567,7 @@ public final class MainActivity extends Activity {
             .setPositiveButton(R.string.clear, (dialog, which) ->
                 executor.execute(() -> {
                     try {
-                        MakerQueue.clear(this);
+                        MakerQueue.clear(this, animated);
                         mainHandler.post(() -> {
                             makerStatus.setText(R.string.queue_cleared);
                             refreshMakerQueue();
@@ -2215,9 +2588,12 @@ public final class MainActivity extends Activity {
     }
 
     private void buildMakerPack() {
-        List<File> sources = MakerQueue.list(this);
-        if (sources.size() < 3 || sources.size() > 30) {
-            makerStatus.setText(R.string.need_three_stickers);
+        boolean animated = makerAnimatedMode();
+        List<File> sources = MakerQueue.list(this, animated);
+        Pack target = selectedMakerTarget();
+        int existingCount = target == null ? 0 : target.stickers.size();
+        if (sources.isEmpty() || sources.size() + existingCount > 30) {
+            makerStatus.setText(R.string.need_one_sticker);
             return;
         }
         String title = makerPackTitle.getText().toString();
@@ -2230,9 +2606,11 @@ public final class MainActivity extends Activity {
                     this,
                     sources,
                     title,
-                    publisher
+                    publisher,
+                    animated,
+                    target
                 );
-                MakerQueue.clear(this);
+                MakerQueue.clear(this, animated);
                 mainHandler.post(() -> {
                     makerStatus.setText(
                         getString(
@@ -2242,8 +2620,10 @@ public final class MainActivity extends Activity {
                         )
                     );
                     setMakerBusy(false);
+                    selectedMakerTargetId = pack.identifier;
                     refreshMakerQueue();
                     refreshPacks();
+                    refreshMakerTargets();
                 });
             } catch (Exception error) {
                 mainHandler.post(() -> {
@@ -2260,12 +2640,17 @@ public final class MainActivity extends Activity {
     }
 
     private void setMakerBusy(boolean busy) {
-        boolean videoReady = selectedVideoUri != null
+        boolean animated = makerAnimatedMode();
+        boolean videoReady = animated && selectedVideoUri != null
             && selectedVideoDurationMs >= 200;
+        boolean imageReady = !animated && selectedImageUri != null;
+        boolean mediaReady = videoReady || imageReady;
         chooseVideoButton.setEnabled(!busy);
-        startSeek.setEnabled(!busy);
-        endSeek.setEnabled(!busy);
-        speedSpinner.setEnabled(!busy);
+        makerModeSpinner.setEnabled(!busy);
+        makerTargetSpinner.setEnabled(!busy);
+        startSeek.setEnabled(!busy && animated);
+        endSeek.setEnabled(!busy && animated);
+        speedSpinner.setEnabled(!busy && animated);
         scaleSeek.setEnabled(!busy);
         positionXSeek.setEnabled(!busy);
         positionYSeek.setEnabled(!busy);
@@ -2276,9 +2661,9 @@ public final class MainActivity extends Activity {
         previewFinalButton.setAlpha(!busy && videoReady ? 1f : 0.45f);
         makerPackTitle.setEnabled(!busy);
         makerPackPublisher.setEnabled(!busy);
-        renderVideoButton.setEnabled(!busy && videoReady);
+        renderVideoButton.setEnabled(!busy && mediaReady);
         renderVideoButton.setAlpha(
-            !busy && videoReady ? 1f : 0.45f
+            !busy && mediaReady ? 1f : 0.45f
         );
         if (!busy) {
             refreshMakerQueue();
@@ -2372,8 +2757,13 @@ public final class MainActivity extends Activity {
             }
             String type = intent.getType();
             if (type != null && type.startsWith("video/")) {
+                makerModeSpinner.setSelection(0);
                 selectedVideoUri = uri;
                 loadSelectedVideo();
+            } else if (type != null && type.startsWith("image/")) {
+                makerModeSpinner.setSelection(1);
+                selectedImageUri = uri;
+                loadSelectedImage();
             } else {
                 importArchive(uri);
             }
@@ -2443,11 +2833,13 @@ public final class MainActivity extends Activity {
                 MUTED
             );
             packList.addView(empty);
+            refreshMakerTargets();
             return;
         }
         for (Pack pack : packs) {
             packList.addView(packCard(pack));
         }
+        refreshMakerTargets();
     }
 
     private View packCard(Pack pack) {
@@ -2481,13 +2873,47 @@ public final class MainActivity extends Activity {
         buttonsParams.topMargin = dp(10);
         card.addView(buttons, buttonsParams);
 
-        if (isInstalled(WHATSAPP)) {
-            if (WhitelistCheck.isWhitelisted(this, pack, WHATSAPP)) {
-                buttons.addView(
-                    addedLabel(getString(R.string.added_whatsapp)),
-                    matchWrap()
+        if (!pack.whatsappEligible()) {
+            TextView warning = text(
+                getString(
+                    R.string.whatsapp_not_eligible,
+                    Math.max(0, 3 - pack.stickers.size())
+                ),
+                14,
+                DANGER
+            );
+            buttons.addView(warning, matchWrap());
+            if (isInstalled(WHATSAPP)) {
+                Button disabledWhatsapp = addButton(
+                    getString(R.string.add_whatsapp),
+                    view -> { }
                 );
-                if (!pack.telegramSourceName.isEmpty()) {
+                styleSecondary(disabledWhatsapp);
+                disabledWhatsapp.setEnabled(false);
+                disabledWhatsapp.setAlpha(0.4f);
+                LinearLayout.LayoutParams disabledParams = matchWrap();
+                disabledParams.topMargin = dp(7);
+                buttons.addView(disabledWhatsapp, disabledParams);
+            }
+            if (isInstalled(WHATSAPP_BUSINESS)) {
+                Button disabledBusiness = addButton(
+                    getString(R.string.add_business),
+                    view -> { }
+                );
+                styleSecondary(disabledBusiness);
+                disabledBusiness.setEnabled(false);
+                disabledBusiness.setAlpha(0.4f);
+                LinearLayout.LayoutParams disabledParams = matchWrap();
+                disabledParams.topMargin = dp(7);
+                buttons.addView(disabledBusiness, disabledParams);
+            }
+        } else {
+            if (isInstalled(WHATSAPP)) {
+                if (WhitelistCheck.isWhitelisted(this, pack, WHATSAPP)) {
+                    buttons.addView(
+                        addedLabel(getString(R.string.added_whatsapp)),
+                        matchWrap()
+                    );
                     Button updateWhatsapp = addButton(
                         getString(R.string.update_whatsapp),
                         view -> enablePack(pack, WHATSAPP)
@@ -2496,40 +2922,40 @@ public final class MainActivity extends Activity {
                     LinearLayout.LayoutParams updateParams = matchWrap();
                     updateParams.topMargin = dp(7);
                     buttons.addView(updateWhatsapp, updateParams);
+                } else {
+                    Button addWhatsapp = addButton(
+                        getString(R.string.add_whatsapp),
+                        view -> enablePack(pack, WHATSAPP)
+                    );
+                    stylePrimary(addWhatsapp);
+                    buttons.addView(addWhatsapp, matchWrap());
                 }
-            } else {
-                Button addWhatsapp = addButton(
-                    getString(R.string.add_whatsapp),
-                    view -> enablePack(pack, WHATSAPP)
-                );
-                stylePrimary(addWhatsapp);
-                buttons.addView(addWhatsapp, matchWrap());
             }
-        }
-        if (isInstalled(WHATSAPP_BUSINESS)) {
-            boolean businessAdded = WhitelistCheck.isWhitelisted(
-                this,
-                pack,
-                WHATSAPP_BUSINESS
-            );
-            View business = businessAdded
-                ? addedLabel(getString(R.string.added_business))
-                : addButton(
-                    getString(R.string.add_business),
-                    view -> enablePack(pack, WHATSAPP_BUSINESS)
+            if (isInstalled(WHATSAPP_BUSINESS)) {
+                boolean businessAdded = WhitelistCheck.isWhitelisted(
+                    this,
+                    pack,
+                    WHATSAPP_BUSINESS
                 );
-            LinearLayout.LayoutParams businessParams = matchWrap();
-            businessParams.topMargin = dp(7);
-            buttons.addView(business, businessParams);
-            if (businessAdded && !pack.telegramSourceName.isEmpty()) {
-                Button updateBusiness = addButton(
-                    getString(R.string.update_business),
-                    view -> enablePack(pack, WHATSAPP_BUSINESS)
-                );
-                styleSecondary(updateBusiness);
-                LinearLayout.LayoutParams updateParams = matchWrap();
-                updateParams.topMargin = dp(7);
-                buttons.addView(updateBusiness, updateParams);
+                View business = businessAdded
+                    ? addedLabel(getString(R.string.added_business))
+                    : addButton(
+                        getString(R.string.add_business),
+                        view -> enablePack(pack, WHATSAPP_BUSINESS)
+                    );
+                LinearLayout.LayoutParams businessParams = matchWrap();
+                businessParams.topMargin = dp(7);
+                buttons.addView(business, businessParams);
+                if (businessAdded) {
+                    Button updateBusiness = addButton(
+                        getString(R.string.update_business),
+                        view -> enablePack(pack, WHATSAPP_BUSINESS)
+                    );
+                    styleSecondary(updateBusiness);
+                    LinearLayout.LayoutParams updateParams = matchWrap();
+                    updateParams.topMargin = dp(7);
+                    buttons.addView(updateBusiness, updateParams);
+                }
             }
         }
         if (
@@ -2808,6 +3234,11 @@ public final class MainActivity extends Activity {
                 getString(R.string.publisher_default)
             )
         );
+        makerModeSpinner.setSelection(
+            Math.max(0, Math.min(1, state.getInt(STATE_MAKER_MODE, 0)))
+        );
+        selectedMakerTargetId = state.getString(STATE_MAKER_TARGET, "");
+        refreshMakerTargets();
         makerPackTitle.setText(
             state.getString(
                 STATE_MAKER_TITLE,
@@ -2854,7 +3285,15 @@ public final class MainActivity extends Activity {
         String video = state.getString(STATE_VIDEO, "");
         if (!video.isEmpty()) {
             selectedVideoUri = Uri.parse(video);
+        }
+        String image = state.getString(STATE_IMAGE, "");
+        if (!image.isEmpty()) {
+            selectedImageUri = Uri.parse(image);
+        }
+        if (makerAnimatedMode() && selectedVideoUri != null) {
             loadSelectedVideo();
+        } else if (!makerAnimatedMode() && selectedImageUri != null) {
+            loadSelectedImage();
         }
     }
 
@@ -3068,6 +3507,17 @@ public final class MainActivity extends Activity {
     }
 
     private boolean enablePack(Pack pack, String targetPackage) {
+        if (!pack.whatsappEligible()) {
+            Toast.makeText(
+                this,
+                getString(
+                    R.string.whatsapp_not_eligible,
+                    Math.max(0, 3 - pack.stickers.size())
+                ),
+                Toast.LENGTH_LONG
+            ).show();
+            return false;
+        }
         Intent intent = new Intent(
             "com.whatsapp.intent.action.ENABLE_STICKER_PACK"
         );
@@ -3105,6 +3555,7 @@ public final class MainActivity extends Activity {
                                 getString(R.string.deleted, pack.name)
                             );
                             refreshPacks();
+                            refreshMakerTargets();
                         });
                     } catch (IOException error) {
                         mainHandler.post(() ->

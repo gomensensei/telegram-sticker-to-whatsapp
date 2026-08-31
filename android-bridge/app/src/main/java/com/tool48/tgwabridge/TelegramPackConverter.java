@@ -126,9 +126,6 @@ final class TelegramPackConverter {
                 animatedCount++;
             }
         }
-        validateMinimum(staticCount, "static");
-        validateMinimum(animatedCount, "animated");
-
         List<Pack> sourcePacks = PackStore.findTelegramSource(
             context,
             set.name
@@ -244,6 +241,12 @@ final class TelegramPackConverter {
                     animatedItems.add(item);
                 }
             }
+            appendLocalItems(
+                context,
+                sourcePacks,
+                staticItems,
+                animatedItems
+            );
             update(listener, 93, Stage.BUILDING_PACKS, 0, 0, 0);
             List<Pack> packs = GeneratedPackBuilder.buildSplit(
                 context,
@@ -413,6 +416,46 @@ final class TelegramPackConverter {
         return result;
     }
 
+    private static void appendLocalItems(
+        Context context,
+        List<Pack> packs,
+        List<GeneratedPackBuilder.Item> staticItems,
+        List<GeneratedPackBuilder.Item> animatedItems
+    ) {
+        for (Pack pack : packs) {
+            File directory = PackStore.packDirectory(
+                context,
+                pack.identifier
+            );
+            for (Sticker sticker : pack.stickers) {
+                if (!sticker.telegramSourceId.isEmpty()) {
+                    continue;
+                }
+                File rendered = safeChild(directory, sticker.fileName);
+                if (rendered == null || !rendered.isFile()) {
+                    continue;
+                }
+                File telegramSource = sticker.telegramSourceFile.isEmpty()
+                    ? null
+                    : safeChild(directory, sticker.telegramSourceFile);
+                GeneratedPackBuilder.Item item =
+                    new GeneratedPackBuilder.Item(
+                        rendered,
+                        sticker.emojis,
+                        sticker.accessibilityText,
+                        "",
+                        telegramSource,
+                        sticker.telegramSourceFormat
+                    );
+                if (pack.animated) {
+                    animatedItems.add(item);
+                } else {
+                    staticItems.add(item);
+                }
+            }
+        }
+    }
+
     private static List<Pack> migrateLegacyPacks(
         Context context,
         TelegramApiClient.StickerSet set
@@ -573,26 +616,9 @@ final class TelegramPackConverter {
         return "webp";
     }
 
-    private static void validateMinimum(int count, String type)
-        throws IOException {
-        if (count > 0 && count < 3) {
-            throw new IOException(
-                "After separating static and animated stickers, this pack "
-                    + "has only "
-                    + count
-                    + " "
-                    + type
-                    + " sticker"
-                    + (count == 1 ? "" : "s")
-                    + ". WhatsApp requires at least 3; stickers will not "
-                    + "be duplicated."
-            );
-        }
-    }
-
     private static String cleanPublisher(String value) {
         String result = value == null ? "" : value.trim();
-        return result.isEmpty() ? "TGWA Maker" : result;
+        return result.isEmpty() ? "ゴメン先生" : result;
     }
 
     private static String cleanEmoji(String value) {

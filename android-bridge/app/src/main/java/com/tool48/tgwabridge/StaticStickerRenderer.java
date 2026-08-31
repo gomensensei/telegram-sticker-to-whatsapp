@@ -1,14 +1,13 @@
 package com.tool48.tgwabridge;
 
+import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
-import android.graphics.Canvas;
-import android.graphics.Color;
-import android.graphics.Paint;
-import android.graphics.RectF;
+import android.net.Uri;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 
 final class StaticStickerRenderer {
     private static final int SIZE = 512;
@@ -49,36 +48,63 @@ final class StaticStickerRenderer {
                 "Android cannot decode a Telegram static sticker."
             );
         }
-        Bitmap canvasBitmap = Bitmap.createBitmap(
-            SIZE,
-            SIZE,
-            Bitmap.Config.ARGB_8888
-        );
         try {
-            Canvas canvas = new Canvas(canvasBitmap);
-            canvas.drawColor(Color.TRANSPARENT);
-            float scale = Math.min(
-                (float) SIZE / source.getWidth(),
-                (float) SIZE / source.getHeight()
-            );
-            float width = source.getWidth() * scale;
-            float height = source.getHeight() * scale;
-            Paint paint = new Paint(
-                Paint.ANTI_ALIAS_FLAG
-                    | Paint.FILTER_BITMAP_FLAG
-                    | Paint.DITHER_FLAG
-            );
-            canvas.drawBitmap(
+            return renderBitmap(
                 source,
-                null,
-                new RectF(
-                    (SIZE - width) / 2f,
-                    (SIZE - height) / 2f,
-                    (SIZE + width) / 2f,
-                    (SIZE + height) / 2f
-                ),
-                paint
+                1f,
+                0f,
+                0f,
+                VideoStickerSettings.Background.TRANSPARENT
             );
+        } finally {
+            source.recycle();
+        }
+    }
+
+    static Bitmap preview(Context context, Uri uri) throws IOException {
+        return decode(context, uri);
+    }
+
+    static byte[] render(
+        Context context,
+        Uri uri,
+        float scale,
+        float offsetX,
+        float offsetY,
+        VideoStickerSettings.Background background
+    ) throws IOException {
+        Bitmap source = decode(context, uri);
+        try {
+            return renderBitmap(
+                source,
+                scale,
+                offsetX,
+                offsetY,
+                background
+            );
+        } finally {
+            source.recycle();
+        }
+    }
+
+    private static byte[] renderBitmap(
+        Bitmap source,
+        float scale,
+        float offsetX,
+        float offsetY,
+        VideoStickerSettings.Background background
+    ) throws IOException {
+        VideoStickerSettings settings = new VideoStickerSettings(
+            0,
+            200,
+            1f,
+            scale,
+            offsetX,
+            offsetY,
+            background
+        );
+        Bitmap canvasBitmap = VideoStickerRenderer.compose(source, settings);
+        try {
             for (int quality : QUALITIES) {
                 ByteArrayOutputStream output =
                     new ByteArrayOutputStream(128 * 1024);
@@ -103,8 +129,39 @@ final class StaticStickerRenderer {
                 "A static sticker cannot be compressed below 100 KB."
             );
         } finally {
-            source.recycle();
             canvasBitmap.recycle();
+        }
+    }
+
+    private static Bitmap decode(Context context, Uri uri)
+        throws IOException {
+        BitmapFactory.Options bounds = new BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        try (InputStream input = context.getContentResolver().openInputStream(uri)) {
+            if (input == null) {
+                throw new IOException("Cannot open the selected image.");
+            }
+            BitmapFactory.decodeStream(input, null, bounds);
+        }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+            throw new IOException("Android cannot read the selected image.");
+        }
+        BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inPreferredConfig = Bitmap.Config.ARGB_8888;
+        options.inSampleSize = 1;
+        int longest = Math.max(bounds.outWidth, bounds.outHeight);
+        while (longest / options.inSampleSize > 2_048) {
+            options.inSampleSize *= 2;
+        }
+        try (InputStream input = context.getContentResolver().openInputStream(uri)) {
+            if (input == null) {
+                throw new IOException("Cannot reopen the selected image.");
+            }
+            Bitmap result = BitmapFactory.decodeStream(input, null, options);
+            if (result == null) {
+                throw new IOException("Android cannot decode the selected image.");
+            }
+            return result;
         }
     }
 

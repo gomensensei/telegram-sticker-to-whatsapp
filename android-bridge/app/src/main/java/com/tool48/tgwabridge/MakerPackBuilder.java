@@ -19,28 +19,59 @@ final class MakerPackBuilder {
         Context context,
         List<File> sources,
         String title,
-        String publisher
+        String publisher,
+        boolean animated,
+        Pack existing
     ) throws IOException, JSONException {
-        if (sources.size() < 3 || sources.size() > 30) {
+        int existingCount = existing == null ? 0 : existing.stickers.size();
+        if (
+            sources.isEmpty()
+            || sources.size() + existingCount > 30
+            || (existing != null && existing.animated != animated)
+        ) {
             throw new IOException(
-                "A WhatsApp animated pack needs 3 to 30 stickers."
+                "A sticker pack needs 1 to 30 stickers of one type."
             );
         }
         List<GeneratedPackBuilder.Item> items = new ArrayList<>();
+        if (existing != null) {
+            File directory = PackStore.packDirectory(
+                context,
+                existing.identifier
+            );
+            for (Sticker sticker : existing.stickers) {
+                File rendered = new File(directory, sticker.fileName);
+                File telegramSource = sticker.telegramSourceFile.isEmpty()
+                    ? null
+                    : new File(directory, sticker.telegramSourceFile);
+                items.add(
+                    new GeneratedPackBuilder.Item(
+                        rendered,
+                        sticker.emojis,
+                        sticker.accessibilityText,
+                        sticker.telegramSourceId,
+                        telegramSource,
+                        sticker.telegramSourceFormat
+                    )
+                );
+            }
+        }
         for (int index = 0; index < sources.size(); index++) {
             items.add(
                 new GeneratedPackBuilder.Item(
                     sources.get(index),
                     Collections.singletonList(DEFAULT_EMOJI),
-                    "Maker sticker " + (index + 1)
+                    "Maker sticker " + (existingCount + index + 1)
                 )
             );
         }
-        return GeneratedPackBuilder.buildAnimated(
+        return GeneratedPackBuilder.buildSingle(
             context,
             items,
             title,
-            publisher
+            publisher,
+            animated,
+            existing
         );
     }
 }

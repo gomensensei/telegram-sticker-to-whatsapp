@@ -61,7 +61,9 @@ public final class StickerContentProvider extends ContentProvider {
         if (segments.size() == 1 && segments.get(0).equals("metadata")) {
             cursor = new MatrixCursor(PACK_COLUMNS);
             for (Pack pack : PackStore.list(context)) {
-                addPack(cursor, pack);
+                if (pack.whatsappEligible()) {
+                    addPack(cursor, pack);
+                }
             }
         } else if (
             segments.size() == 2
@@ -69,7 +71,7 @@ public final class StickerContentProvider extends ContentProvider {
         ) {
             cursor = new MatrixCursor(PACK_COLUMNS);
             Pack pack = PackStore.find(context, segments.get(1));
-            if (pack != null) {
+            if (pack != null && pack.whatsappEligible()) {
                 addPack(cursor, pack);
             }
         } else if (
@@ -78,7 +80,7 @@ public final class StickerContentProvider extends ContentProvider {
         ) {
             cursor = new MatrixCursor(STICKER_COLUMNS);
             Pack pack = PackStore.find(context, segments.get(1));
-            if (pack != null) {
+            if (pack != null && pack.whatsappEligible()) {
                 for (Sticker sticker : pack.stickers) {
                     cursor.addRow(new Object[] {
                         sticker.fileName,
@@ -130,7 +132,7 @@ public final class StickerContentProvider extends ContentProvider {
             throw new FileNotFoundException("Unsupported asset URI.");
         }
         Pack pack = PackStore.find(attachedContext(), segments.get(1));
-        if (pack == null) {
+        if (pack == null || !pack.whatsappEligible()) {
             throw new FileNotFoundException("Unknown sticker pack.");
         }
         String fileName = segments.get(2);
