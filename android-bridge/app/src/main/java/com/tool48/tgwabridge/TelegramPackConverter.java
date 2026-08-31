@@ -88,6 +88,7 @@ final class TelegramPackConverter {
     static final class Result {
         final TelegramApiClient.StickerSet source;
         final List<Pack> packs;
+        final List<Pack> updatedPacks;
         final int staticCount;
         final int animatedCount;
         final int newCount;
@@ -96,6 +97,7 @@ final class TelegramPackConverter {
         Result(
             TelegramApiClient.StickerSet source,
             List<Pack> packs,
+            List<Pack> updatedPacks,
             int staticCount,
             int animatedCount,
             int newCount,
@@ -103,6 +105,7 @@ final class TelegramPackConverter {
         ) {
             this.source = source;
             this.packs = packs;
+            this.updatedPacks = updatedPacks;
             this.staticCount = staticCount;
             this.animatedCount = animatedCount;
             this.newCount = newCount;
@@ -302,10 +305,12 @@ final class TelegramPackConverter {
                 cleanPublisher(publisher),
                 set.name
             );
+            List<Pack> updatedPacks = changedPacks(sourcePacks, packs);
             update(listener, 100, Stage.COMPLETE, 0, 0, 100);
             return new Result(
                 set,
                 packs,
+                updatedPacks,
                 staticCount,
                 animatedCount,
                 newCount,
@@ -457,6 +462,27 @@ final class TelegramPackConverter {
                         )
                     );
                 }
+            }
+        }
+        return result;
+    }
+
+    private static List<Pack> changedPacks(
+        List<Pack> previous,
+        List<Pack> current
+    ) {
+        Map<String, String> versions = new HashMap<>();
+        for (Pack pack : previous) {
+            versions.put(pack.identifier, pack.imageDataVersion);
+        }
+        List<Pack> result = new ArrayList<>();
+        for (Pack pack : current) {
+            String oldVersion = versions.get(pack.identifier);
+            if (
+                oldVersion == null
+                || !oldVersion.equals(pack.imageDataVersion)
+            ) {
+                result.add(pack);
             }
         }
         return result;

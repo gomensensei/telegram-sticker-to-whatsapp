@@ -15,7 +15,8 @@ or animated sticker maker.
   Part with 1–2 stickers remains saved and exportable to Telegram; only its
   WhatsApp button stays disabled until it reaches 3.
 - Keeps completed 30-sticker Parts byte-for-byte unchanged during later
-  Telegram syncs and updates only the affected tail Part.
+  Telegram syncs, updates only the affected tail Part, and sends only that
+  changed Part through the automatic WhatsApp confirmation flow.
 - Makes static stickers from phone images with drag, pinch scaling, position,
   and transparent/black/white backgrounds, compressed to 512 × 512 under
   100 KB.

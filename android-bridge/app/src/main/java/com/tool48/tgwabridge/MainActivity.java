@@ -942,7 +942,7 @@ public final class MainActivity extends Activity {
                         )
                     );
                     refreshPacks();
-                    beginAutomaticWhatsAppAdd(result.packs);
+                    beginAutomaticWhatsAppAdd(result.updatedPacks);
                 });
             } catch (Exception error) {
                 mainHandler.post(() -> {

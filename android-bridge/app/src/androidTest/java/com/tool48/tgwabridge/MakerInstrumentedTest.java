@@ -419,6 +419,11 @@ public final class MakerInstrumentedTest {
             assertEquals(1, refreshed.newCount);
             assertEquals(33, refreshed.reusedCount);
             assertEquals(2, refreshed.packs.size());
+            assertEquals(1, refreshed.updatedPacks.size());
+            assertEquals(
+                original.get(1).identifier,
+                refreshed.updatedPacks.get(0).identifier
+            );
             assertEquals(
                 original.get(0).identifier,
                 refreshed.packs.get(0).identifier
