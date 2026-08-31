@@ -32,24 +32,6 @@ uint8_t clampByte(int value) {
     return static_cast<uint8_t>(std::max(0, std::min(255, value)));
 }
 
-int safeSample(
-    const uint8_t* data,
-    int base,
-    int limit,
-    int rowStride,
-    int pixelStride,
-    int row,
-    int column
-) {
-    int safeRow = std::max(0, row);
-    int maxRow = std::max(0, (limit - 1 - base) / rowStride);
-    safeRow = std::min(safeRow, maxRow);
-    int rowStart = base + safeRow * rowStride;
-    int maxColumn = std::max(0, (limit - 1 - rowStart) / pixelStride);
-    int safeColumn = std::min(std::max(0, column), maxColumn);
-    return data[rowStart + safeColumn * pixelStride];
-}
-
 }  // namespace
 
 extern "C" JNIEXPORT jlong JNICALL
@@ -255,79 +237,5 @@ Java_com_tool48_tgwabridge_NativePixelConverter_bitmapToYuv420(
     }
     env->ReleaseByteArrayElements(output, targetBytes, 0);
     AndroidBitmap_unlockPixels(env, bitmap);
-    return JNI_TRUE;
-}
-
-extern "C" JNIEXPORT jboolean JNICALL
-Java_com_tool48_tgwabridge_NativePixelConverter_yuv420ToBitmap(
-    JNIEnv* env,
-    jclass,
-    jobject yBuffer,
-    jint yBase,
-    jint yLimit,
-    jint yRowStride,
-    jint yPixelStride,
-    jobject uBuffer,
-    jint uBase,
-    jint uLimit,
-    jint uRowStride,
-    jint uPixelStride,
-    jobject vBuffer,
-    jint vBase,
-    jint vLimit,
-    jint vRowStride,
-    jint vPixelStride,
-    jint left,
-    jint top,
-    jobject output
-) {
-    const uint8_t* y = static_cast<const uint8_t*>(
-        env->GetDirectBufferAddress(yBuffer)
-    );
-    const uint8_t* u = static_cast<const uint8_t*>(
-        env->GetDirectBufferAddress(uBuffer)
-    );
-    const uint8_t* v = static_cast<const uint8_t*>(
-        env->GetDirectBufferAddress(vBuffer)
-    );
-    AndroidBitmapInfo info{};
-    void* pixels = nullptr;
-    if (
-        y == nullptr || u == nullptr || v == nullptr || output == nullptr
-        || yBase < 0 || uBase < 0 || vBase < 0
-        || yLimit <= yBase || uLimit <= uBase || vLimit <= vBase
-        || yRowStride <= 0 || uRowStride <= 0 || vRowStride <= 0
-        || yPixelStride <= 0 || uPixelStride <= 0 || vPixelStride <= 0
-        || AndroidBitmap_getInfo(env, output, &info) != ANDROID_BITMAP_RESULT_SUCCESS
-        || info.format != ANDROID_BITMAP_FORMAT_RGBA_8888
-        || AndroidBitmap_lockPixels(env, output, &pixels)
-            != ANDROID_BITMAP_RESULT_SUCCESS
-    ) {
-        return JNI_FALSE;
-    }
-    for (uint32_t row = 0; row < info.height; ++row) {
-        uint8_t* rgba = static_cast<uint8_t*>(pixels) + row * info.stride;
-        int sourceY = top + static_cast<int>(row);
-        for (uint32_t column = 0; column < info.width; ++column) {
-            int sourceX = left + static_cast<int>(column);
-            int yy = std::max(
-                0,
-                safeSample(y, yBase, yLimit, yRowStride, yPixelStride, sourceY, sourceX) - 16
-            );
-            int uu = safeSample(
-                u, uBase, uLimit, uRowStride, uPixelStride, sourceY / 2, sourceX / 2
-            ) - 128;
-            int vv = safeSample(
-                v, vBase, vLimit, vRowStride, vPixelStride, sourceY / 2, sourceX / 2
-            ) - 128;
-            rgba[column * 4U] = clampByte((298 * yy + 409 * vv + 128) >> 8);
-            rgba[column * 4U + 1U] = clampByte(
-                (298 * yy - 100 * uu - 208 * vv + 128) >> 8
-            );
-            rgba[column * 4U + 2U] = clampByte((298 * yy + 516 * uu + 128) >> 8);
-            rgba[column * 4U + 3U] = 255;
-        }
-    }
-    AndroidBitmap_unlockPixels(env, output);
     return JNI_TRUE;
 }

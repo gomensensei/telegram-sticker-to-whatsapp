@@ -53,6 +53,38 @@ final class TelegramPackConverter {
         void onProgress(Progress progress);
     }
 
+    interface TelegramSource {
+        TelegramApiClient.StickerSet getStickerSet(String shortName)
+            throws IOException, JSONException;
+
+        byte[] download(
+            TelegramApiClient.RemoteSticker sticker,
+            TelegramApiClient.DownloadListener listener
+        ) throws IOException, JSONException;
+    }
+
+    private static final class BotSource implements TelegramSource {
+        private final TelegramApiClient client;
+
+        BotSource(String token) throws IOException {
+            client = new TelegramApiClient(token);
+        }
+
+        @Override
+        public TelegramApiClient.StickerSet getStickerSet(String shortName)
+            throws IOException, JSONException {
+            return client.getStickerSet(shortName);
+        }
+
+        @Override
+        public byte[] download(
+            TelegramApiClient.RemoteSticker sticker,
+            TelegramApiClient.DownloadListener listener
+        ) throws IOException, JSONException {
+            return client.download(sticker, listener);
+        }
+    }
+
     static final class Result {
         final TelegramApiClient.StickerSet source;
         final List<Pack> packs;
@@ -107,10 +139,25 @@ final class TelegramPackConverter {
         String publisher,
         ProgressListener listener
     ) throws IOException, JSONException {
+        return convert(
+            context,
+            link,
+            publisher,
+            listener,
+            new BotSource(token)
+        );
+    }
+
+    static Result convert(
+        Context context,
+        String link,
+        String publisher,
+        ProgressListener listener,
+        TelegramSource source
+    ) throws IOException, JSONException {
         String shortName = TelegramPackLink.shortName(link);
-        TelegramApiClient client = new TelegramApiClient(token);
         update(listener, 1, Stage.READING_PACK, 0, 0, 0);
-        TelegramApiClient.StickerSet set = client.getStickerSet(shortName);
+        TelegramApiClient.StickerSet set = source.getStickerSet(shortName);
         if (set.stickers.size() > 200) {
             throw new IOException(
                 "This pack has more than 200 stickers and is too large "
@@ -164,19 +211,8 @@ final class TelegramPackConverter {
                     previous = null;
                 }
                 String format = telegramFormat(sticker.kind);
-                File sourceFile = new File(
-                    work,
-                    String.format(
-                        Locale.ROOT,
-                        "%03d-source.%s",
-                        index + 1,
-                        telegramExtension(format)
-                    )
-                );
-                File rendered = new File(
-                    work,
-                    String.format(Locale.ROOT, "%03d.webp", index + 1)
-                );
+                File sourceFile;
+                File rendered;
 
                 if (previous != null && previous.rendered.isFile()) {
                     update(
@@ -187,27 +223,37 @@ final class TelegramPackConverter {
                         total,
                         100
                     );
-                    copy(previous.rendered, rendered, 600 * 1024);
+                    rendered = previous.rendered;
                     if (
                         previous.telegramSource != null
                         && previous.telegramSource.isFile()
                         && format.equals(previous.telegramFormat)
                     ) {
-                        copy(previous.telegramSource, sourceFile, 8 * 1024 * 1024);
+                        sourceFile = previous.telegramSource;
                     } else {
-                        downloadSource(
-                            client,
-                            sticker,
-                            sourceFile,
-                            listener,
-                            index,
-                            total
-                        );
+                        sourceFile = null;
                     }
                     reusedCount++;
                 } else {
+                    sourceFile = new File(
+                        work,
+                        String.format(
+                            Locale.ROOT,
+                            "%03d-source.%s",
+                            index + 1,
+                            telegramExtension(format)
+                        )
+                    );
+                    rendered = new File(
+                        work,
+                        String.format(
+                            Locale.ROOT,
+                            "%03d.webp",
+                            index + 1
+                        )
+                    );
                     downloadSource(
-                        client,
+                        source,
                         sticker,
                         sourceFile,
                         listener,
@@ -275,7 +321,7 @@ final class TelegramPackConverter {
     }
 
     private static void downloadSource(
-        TelegramApiClient client,
+        TelegramSource source,
         TelegramApiClient.RemoteSticker sticker,
         File sourceFile,
         ProgressListener listener,
@@ -290,7 +336,7 @@ final class TelegramPackConverter {
             total,
             0
         );
-        byte[] source = client.download(
+        byte[] data = source.download(
             sticker,
             downloadPercent -> {
                 int itemPercent = downloadPercent * 15 / 100;
@@ -304,7 +350,7 @@ final class TelegramPackConverter {
                 );
             }
         );
-        write(sourceFile, source);
+        write(sourceFile, data);
     }
 
     private static void renderSticker(

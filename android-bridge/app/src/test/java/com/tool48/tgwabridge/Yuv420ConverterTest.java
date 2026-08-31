@@ -46,6 +46,60 @@ public final class Yuv420ConverterTest {
     }
 
     @Test
+    public void preservesStrongColorsWithInterleavedChromaPlanes() {
+        ByteBuffer y = ByteBuffer.allocate(8);
+        ByteBuffer u = ByteBuffer.allocate(5);
+        ByteBuffer v = ByteBuffer.allocate(5);
+        for (int row = 0; row < 2; row++) {
+            y.put(row * 4, (byte) 82);
+            y.put(row * 4 + 1, (byte) 82);
+            y.put(row * 4 + 2, (byte) 41);
+            y.put(row * 4 + 3, (byte) 41);
+        }
+        u.position(1);
+        v.position(1);
+        u.put(1, (byte) 90);
+        u.put(3, (byte) 240);
+        v.put(1, (byte) 240);
+        v.put(3, (byte) 110);
+
+        int[] pixels = Yuv420Converter.toArgb(
+            4,
+            2,
+            0,
+            0,
+            y,
+            4,
+            1,
+            u,
+            4,
+            2,
+            v,
+            4,
+            2
+        );
+
+        assertMostlyRed(pixels[0]);
+        assertMostlyRed(pixels[5]);
+        assertMostlyBlue(pixels[2]);
+        assertMostlyBlue(pixels[7]);
+    }
+
+    private static void assertMostlyRed(int color) {
+        assertEquals(255, color >>> 24);
+        org.junit.Assert.assertTrue(((color >>> 16) & 0xff) > 220);
+        org.junit.Assert.assertTrue(((color >>> 8) & 0xff) < 45);
+        org.junit.Assert.assertTrue((color & 0xff) < 45);
+    }
+
+    private static void assertMostlyBlue(int color) {
+        assertEquals(255, color >>> 24);
+        org.junit.Assert.assertTrue(((color >>> 16) & 0xff) < 45);
+        org.junit.Assert.assertTrue(((color >>> 8) & 0xff) < 45);
+        org.junit.Assert.assertTrue((color & 0xff) > 220);
+    }
+
+    @Test
     public void honoursBufferPositionAndCropOffset() {
         ByteBuffer y = ByteBuffer.allocate(8);
         ByteBuffer u = ByteBuffer.allocate(4);

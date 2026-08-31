@@ -12,6 +12,7 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
+import android.net.Uri;
 
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
@@ -142,6 +143,19 @@ public final class MakerInstrumentedTest {
             } finally {
                 extractor.release();
             }
+
+            int[] decodedColors = new int[2];
+            SequentialVideoDecoder.decode(
+                context,
+                Uri.fromFile(output),
+                new long[] {0L, 100_000L},
+                (frame, index) -> decodedColors[index] = frame.getPixel(
+                    index == 0 ? 130 : 370,
+                    256
+                )
+            );
+            assertColorMostly(decodedColors[0], Color.RED);
+            assertColorMostly(decodedColors[1], Color.BLUE);
         } finally {
             input.delete();
             output.delete();
@@ -201,6 +215,7 @@ public final class MakerInstrumentedTest {
         }
         byte[] sticker = StaticStickerRenderer.render(png.toByteArray());
         File queued = new File(context.getCacheDir(), "append-static.webp");
+        String unicodeTitle = "中文貼圖包 " + System.currentTimeMillis();
         try (FileOutputStream output = new FileOutputStream(queued)) {
             output.write(sticker);
         }
@@ -209,12 +224,14 @@ public final class MakerInstrumentedTest {
             first = MakerPackBuilder.build(
                 context,
                 Collections.singletonList(queued),
-                "Append Test " + System.currentTimeMillis(),
+                unicodeTitle,
                 "ゴメン先生",
                 false,
                 null
             );
             assertEquals(1, first.stickers.size());
+            assertEquals(unicodeTitle, first.name);
+            assertEquals("ゴメン先生", first.publisher);
             assertFalse(first.whatsappEligible());
             Pack second = MakerPackBuilder.build(
                 context,
@@ -309,6 +326,119 @@ public final class MakerInstrumentedTest {
         }
     }
 
+    @Test
+    public void telegramRefreshDownloadsAndRendersOnlyTheNewSticker()
+        throws Exception {
+        Context context = InstrumentationRegistry
+            .getInstrumentation()
+            .getTargetContext();
+        Bitmap source = Bitmap.createBitmap(
+            256,
+            256,
+            Bitmap.Config.ARGB_8888
+        );
+        source.eraseColor(Color.YELLOW);
+        ByteArrayOutputStream png = new ByteArrayOutputStream();
+        try {
+            assertTrue(source.compress(Bitmap.CompressFormat.PNG, 100, png));
+        } finally {
+            source.recycle();
+        }
+        byte[] renderedData = StaticStickerRenderer.render(png.toByteArray());
+        File rendered = new File(
+            context.getCacheDir(),
+            "increment-converter-static.webp"
+        );
+        try (FileOutputStream output = new FileOutputStream(rendered)) {
+            output.write(renderedData);
+        }
+        String sourceName = "increment_convert_" + System.currentTimeMillis();
+        try {
+            List<Pack> original = GeneratedPackBuilder.buildSplit(
+                context,
+                telegramItems(rendered, 33),
+                Collections.emptyList(),
+                "Increment Converter Test",
+                "ゴメン先生",
+                sourceName
+            );
+            assertEquals(2, original.size());
+
+            List<TelegramApiClient.RemoteSticker> remote = new ArrayList<>();
+            for (int index = 0; index < 34; index++) {
+                remote.add(
+                    new TelegramApiClient.RemoteSticker(
+                        "file-" + index,
+                        "unique-" + index,
+                        "✨",
+                        TelegramApiClient.Kind.STATIC
+                    )
+                );
+            }
+            TelegramApiClient.StickerSet set =
+                new TelegramApiClient.StickerSet(
+                    sourceName,
+                    "Increment Converter Test",
+                    remote
+                );
+            int[] downloads = {0};
+            TelegramPackConverter.TelegramSource fake =
+                new TelegramPackConverter.TelegramSource() {
+                    @Override
+                    public TelegramApiClient.StickerSet getStickerSet(
+                        String requestedName
+                    ) {
+                        assertEquals(sourceName, requestedName);
+                        return set;
+                    }
+
+                    @Override
+                    public byte[] download(
+                        TelegramApiClient.RemoteSticker sticker,
+                        TelegramApiClient.DownloadListener listener
+                    ) {
+                        downloads[0]++;
+                        assertEquals("unique-33", sticker.uniqueId);
+                        if (listener != null) {
+                            listener.onProgress(100);
+                        }
+                        return png.toByteArray();
+                    }
+                };
+
+            TelegramPackConverter.Result refreshed =
+                TelegramPackConverter.convert(
+                    context,
+                    "https://t.me/addstickers/" + sourceName,
+                    "ゴメン先生",
+                    null,
+                    fake
+                );
+
+            assertEquals(1, downloads[0]);
+            assertEquals(1, refreshed.newCount);
+            assertEquals(33, refreshed.reusedCount);
+            assertEquals(2, refreshed.packs.size());
+            assertEquals(
+                original.get(0).identifier,
+                refreshed.packs.get(0).identifier
+            );
+            assertEquals(
+                original.get(1).identifier,
+                refreshed.packs.get(1).identifier
+            );
+            assertEquals(30, refreshed.packs.get(0).stickers.size());
+            assertEquals(4, refreshed.packs.get(1).stickers.size());
+        } finally {
+            rendered.delete();
+            for (
+                Pack pack : PackStore.findTelegramSource(context, sourceName)
+            ) {
+                PackStore.delete(context, pack.identifier);
+            }
+        }
+    }
+
     private static List<GeneratedPackBuilder.Item> telegramItems(
         File rendered,
         int count
@@ -382,6 +512,21 @@ public final class MakerInstrumentedTest {
             }
         }
         return false;
+    }
+
+    private static void assertColorMostly(int actual, int expected) {
+        assertTrue(
+            "red channel differs: actual=" + Integer.toHexString(actual),
+            Math.abs(Color.red(actual) - Color.red(expected)) <= 55
+        );
+        assertTrue(
+            "green channel differs: actual=" + Integer.toHexString(actual),
+            Math.abs(Color.green(actual) - Color.green(expected)) <= 55
+        );
+        assertTrue(
+            "blue channel differs: actual=" + Integer.toHexString(actual),
+            Math.abs(Color.blue(actual) - Color.blue(expected)) <= 55
+        );
     }
 
     private static String simpleMovingCircleLottie() {

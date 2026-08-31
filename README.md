@@ -124,7 +124,7 @@ WhatsApp 官方格式重點（貼圖包模式）：
 但不能用 Android `Bitmap.compress()` 將影片逐格「另存 WebP」代替真正動畫
 編碼；該路徑只會產生單幀 WebP，加入 WhatsApp 後就會變定格。
 
-`TGWA Maker 2.4.0` 已在 APK 內完成：
+`TGWA Maker 2.4.1` 已在 APK 內完成：
 
 - 貼上 Telegram sticker pack 連結後，直接以 Bot API 下載整包。
 - 靜態 WebP／PNG、TGS 及 WEBM 分別解碼；TGS 由 Lottie 渲染，影片及 WEBM
@@ -138,7 +138,8 @@ WhatsApp 官方格式重點（貼圖包模式）：
 - 動圖與普通圖自動分開，固定每 30 張建立 Part；第 31、32 張會先保存成可傳
   Telegram 嘅尾包，WhatsApp 加入掣保持灰色，到第 33 張自動解鎖。
 - 同一 Telegram link 再同步會按 `file_unique_id` 只轉新貼圖；完整 Part 嘅
-  identifier、貼圖檔案同 `imageDataVersion` 保持不變，只更新有新增貼圖嘅 Part。
+  identifier、貼圖檔案同 `imageDataVersion` 保持不變，只更新有新增貼圖嘅 Part；
+  舊貼圖會直接沿用手機已保存檔案，唔會重新下載或重新轉檔。
 - 可直接揀手機圖片製作靜態貼圖，支援拖曳位置、雙指縮放同透明／黑／白背景；
   靜態同動態 Maker 都可以建立新包，或者只追加去現有同類貼圖包。
 - 正式下載 APK 預設使用內置共享 Bot，Token 欄位保持隱藏；只有按
@@ -157,7 +158,8 @@ WhatsApp 官方格式重點（貼圖包模式）：
   再按實際 presentation timestamp 取格；毋須依賴部分手機會失效的時間／索引
   seek。系統順序解碼不可用時，仍保留原有兩條抽格路徑作後備。
 - YUV converter 會自動判斷 crop／plane 原點，並兼容奇數尺寸影片截短的 chroma
-  尾行／尾列；例如 479 × 512 Telegram WEBM 不會再於最右邊一格越界。
+  尾行／尾列；讀取會保留 Android 回報嘅 plane buffer 起點、row stride 同 pixel
+  stride，避免部分手機經 JNI 直讀時出現灰畫面、綠色或紫色濛格。
 - Telegram WEBM 會先順序解碼一次並暫存已排版的 512 × 512 畫格；若首次壓縮
   超過 500 KB，之後的 FPS／畫質嘗試會重用同一批畫格，不再把影片重複解碼
   最多 9 次。記憶體不足時會自動使用原有低記憶體後備路徑。

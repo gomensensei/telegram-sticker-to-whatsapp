@@ -163,36 +163,10 @@ final class Yuv420Converter {
                 crop.left,
                 crop.top
             );
-            Bitmap bitmap = Bitmap.createBitmap(
-                width,
-                height,
-                Bitmap.Config.ARGB_8888
-            );
-            if (
-                NativePixelConverter.yuv420ToBitmap(
-                    layout.y.buffer,
-                    layout.y.base,
-                    layout.y.limit,
-                    layout.y.rowStride,
-                    layout.y.pixelStride,
-                    layout.u.buffer,
-                    layout.u.base,
-                    layout.u.limit,
-                    layout.u.rowStride,
-                    layout.u.pixelStride,
-                    layout.v.buffer,
-                    layout.v.base,
-                    layout.v.limit,
-                    layout.v.rowStride,
-                    layout.v.pixelStride,
-                    layout.left,
-                    layout.top,
-                    bitmap
-                )
-            ) {
-                return bitmap;
-            }
-            bitmap.recycle();
+            // Some vendor MediaCodec buffers expose plane origins that differ
+            // between Java absolute reads and JNI direct-buffer addresses.
+            // Keep the trusted stride-aware reads here so chroma cannot shift
+            // into green/magenta blocks on those devices.
             int[] pixels = toArgb(width, height, data, layout);
             return Bitmap.createBitmap(
                 pixels,
