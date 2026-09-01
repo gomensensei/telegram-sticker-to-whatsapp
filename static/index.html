@@ -48,15 +48,15 @@
         <div class="eyebrow"><span>01</span> Paste. Convert. Send.</div>
         <h1>Telegram 貼圖，<br><em>無痛搬去 WhatsApp。</em></h1>
         <p>
-          貼一條 sticker pack 連結，自動處理靜態、動畫、影片貼圖，
-          超過 30 張會自動分成 Part 1、2、3，直到完成。
+          貼 sticker pack 連結，或者直接放入影片，自動處理、壓縮；
+          靜態／動態會自動分開，超過 30 張再分 Part 1、2、3，直到完成。
         </p>
         <div class="flow-chips" aria-label="轉換流程">
-          <span><b>1</b> 貼連結</span>
+          <span><b>1</b> 貼連結／揀影片</span>
           <i>→</i>
           <span><b>2</b> 自動轉檔</span>
           <i>→</i>
-          <span><b>3</b> 掃 QR</span>
+          <span><b>3</b> 下載／掃 QR</span>
         </div>
       </section>
 
@@ -67,7 +67,30 @@
               <span class="section-kicker">NEW CONVERSION</span>
               <h2>開始轉換</h2>
             </div>
-            <span class="format-badge">.wastickers</span>
+            <span class="format-badge" id="formatBadge">.wastickers</span>
+          </div>
+
+          <div class="mode-tabs" role="tablist" aria-label="轉換模式">
+            <button
+              class="active"
+              id="packModeButton"
+              type="button"
+              role="tab"
+              aria-selected="true"
+              aria-controls="convertForm"
+            >
+              Telegram 貼圖包
+            </button>
+            <button
+              id="videoModeButton"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="videoForm"
+            >
+              影片製作動態貼圖
+              <small>NEW</small>
+            </button>
           </div>
 
           <div class="notice hidden" id="savedTokenNotice">
@@ -188,6 +211,150 @@
               <span class="button-shine" aria-hidden="true"></span>
             </button>
           </form>
+
+          <form class="video-form hidden" id="videoForm">
+            <div class="video-drop" id="videoDrop">
+              <input
+                id="videoFile"
+                type="file"
+                accept="video/mp4,video/quicktime,video/webm,video/x-m4v,video/x-matroska,video/x-msvideo,image/gif,.mp4,.mov,.m4v,.mkv,.webm,.avi,.gif"
+                hidden
+              >
+              <span class="video-drop-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <rect x="3" y="5" width="15" height="14" rx="3"></rect>
+                  <path d="m18 10 3-2v8l-3-2M9 9l4 3-4 3z"></path>
+                </svg>
+              </span>
+              <strong>拖入影片，或者選擇檔案</strong>
+              <p>支援 MP4、MOV、M4V、MKV、WEBM、AVI、GIF · 最多 512 MB</p>
+              <button class="secondary-button" id="chooseVideoButton" type="button">
+                選擇影片
+              </button>
+            </div>
+
+            <div class="video-editor hidden" id="videoEditor">
+              <div class="video-file-bar">
+                <div>
+                  <strong id="videoFileName">video.mp4</strong>
+                  <small id="videoFileMeta">1920×1080 · 0:08</small>
+                </div>
+                <button id="changeVideoButton" type="button">更換</button>
+              </div>
+
+              <div class="video-stage-wrap">
+                <div class="video-stage" id="videoStage" data-background="transparent">
+                  <span class="transparent-grid" aria-hidden="true"></span>
+                  <video id="videoPreview" muted playsinline preload="metadata"></video>
+                  <span class="safe-frame" aria-hidden="true"></span>
+                  <span class="drag-hint" aria-hidden="true">拖曳改位置</span>
+                </div>
+                <div class="preview-toolbar">
+                  <button id="previewPlayButton" type="button">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="m9 7 8 5-8 5z"></path>
+                    </svg>
+                    <span>預覽剪輯</span>
+                  </button>
+                  <button id="resetTransformButton" type="button">重設畫面</button>
+                </div>
+              </div>
+
+              <div class="video-controls">
+                <div class="control-row">
+                  <div class="control-heading">
+                    <label for="clipStart">開始時間</label>
+                    <output id="clipStartValue">0.00 秒</output>
+                  </div>
+                  <input id="clipStart" type="range" min="0" max="0" step="0.01" value="0">
+                </div>
+
+                <div class="control-row">
+                  <div class="control-heading">
+                    <label for="clipDuration">剪輯長度</label>
+                    <output id="clipDurationValue">3.00 秒</output>
+                  </div>
+                  <input id="clipDuration" type="range" min="0.2" max="3" step="0.05" value="3">
+                  <small>同時符合 Telegram 及 WhatsApp：最多 3 秒</small>
+                </div>
+
+                <div class="control-row">
+                  <div class="control-heading">
+                    <label for="videoScale">影片大小</label>
+                    <output id="videoScaleValue">100%</output>
+                  </div>
+                  <input id="videoScale" type="range" min="25" max="400" step="1" value="100">
+                </div>
+
+                <div class="position-grid">
+                  <div class="control-row">
+                    <div class="control-heading">
+                      <label for="videoOffsetX">左右位置</label>
+                      <output id="videoOffsetXValue">0</output>
+                    </div>
+                    <input id="videoOffsetX" type="range" min="-100" max="100" step="1" value="0">
+                  </div>
+                  <div class="control-row">
+                    <div class="control-heading">
+                      <label for="videoOffsetY">上下位置</label>
+                      <output id="videoOffsetYValue">0</output>
+                    </div>
+                    <input id="videoOffsetY" type="range" min="-100" max="100" step="1" value="0">
+                  </div>
+                </div>
+
+                <div class="video-option-grid">
+                  <div class="field">
+                    <label for="videoBackground">畫布背景</label>
+                    <select id="videoBackground">
+                      <option value="transparent">透明</option>
+                      <option value="black">黑色</option>
+                      <option value="white">白色</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="videoTitle">輸出名稱</label>
+                    <input id="videoTitle" type="text" maxlength="128" placeholder="例如：Kosaki Dance">
+                  </div>
+                </div>
+              </div>
+
+              <div class="quality-targets">
+                <div>
+                  <b>Telegram</b>
+                  <span>VP9 WEBM · 512×512 · ≤256 KB</span>
+                </div>
+                <div>
+                  <b>WhatsApp</b>
+                  <span>Animated WebP · 512×512 · ≤500 KB</span>
+                </div>
+                <div>
+                  <b>Sticker Maker</b>
+                  <span>MP4 匯入片 · 避免動畫變靜態</span>
+                </div>
+              </div>
+
+              <div class="upload-progress hidden" id="uploadProgress">
+                <div><span id="uploadProgressBar"></span></div>
+                <small id="uploadProgressLabel">正在上載影片到本機工具… 0%</small>
+              </div>
+
+              <div class="form-error hidden" id="videoFormError" role="alert"></div>
+
+              <button class="primary-button video-convert-button" id="videoConvertButton" type="submit">
+                <span class="button-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24">
+                    <path d="m9 7 8 5-8 5z"></path>
+                  </svg>
+                </span>
+                <span>
+                  <strong>輸出 TG + WhatsApp 動態貼圖</strong>
+                  <small>自動搜尋限制內最高畫質</small>
+                </span>
+                <span class="button-shine" aria-hidden="true"></span>
+              </button>
+            </div>
+          </form>
         </article>
 
         <aside class="side-panel">
@@ -223,8 +390,8 @@
               <i>✓</i>
             </li>
             <li>
-              <span>自動分包</span>
-              <b>30 張／Part</b>
+              <span>自動分類＋分包</span>
+              <b>靜／動分開 · 30 張／Part</b>
               <i>✓</i>
             </li>
             <li>
@@ -289,6 +456,166 @@
           <h2>轉換完成。</h2>
           <p id="resultSummary">WhatsApp 貼圖包已經準備好。</p>
           <div class="package-list" id="packageList"></div>
+          <section class="telegram-direct hidden" id="telegramDirect">
+            <div class="telegram-direct-heading">
+              <span class="telegram-direct-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="m3.8 11.4 15.8-6.8c.8-.3 1.5.2 1.3 1.2l-2.7 12.5c-.2.9-.8 1.1-1.6.6l-4-3-2 2c-.2.2-.4.4-.8.4l.3-4.1 7.5-6.8c.3-.3-.1-.5-.5-.2l-9.4 5.8-4-1.2c-.9-.3-.9-.9.1-1.4Z"/>
+                </svg>
+              </span>
+              <div>
+                <strong>直接加入 Telegram 動態貼圖</strong>
+                <small>唔經相片選擇器，直接上載正確嘅 WEBM</small>
+              </div>
+            </div>
+
+            <div class="telegram-connect" id="telegramConnect">
+              <div class="field">
+                <label for="telegramPublishToken">Telegram Bot Token</label>
+                <input
+                  id="telegramPublishToken"
+                  type="password"
+                  autocomplete="off"
+                  placeholder="已保存可留空；否則貼上 @BotFather Token"
+                >
+              </div>
+              <label class="remember-row" for="telegramPublishRemember">
+                <input id="telegramPublishRemember" type="checkbox" checked>
+                <span>安全保存喺呢部電腦，下次一鍵使用</span>
+              </label>
+              <button
+                class="telegram-action-button"
+                id="telegramConnectButton"
+                type="button"
+              >
+                連接 Telegram Bot
+              </button>
+            </div>
+
+            <p class="telegram-publish-status" id="telegramPublishStatus" role="status">
+              第一次使用請先連接你喺 @BotFather 建立嘅 Bot。
+            </p>
+            <a
+              class="telegram-start-link hidden"
+              id="telegramStartLink"
+              target="_blank"
+              rel="noreferrer"
+            >開啟 Telegram 並按 Start</a>
+
+            <form class="telegram-publish-form hidden" id="telegramPublishForm">
+              <div class="telegram-field-grid">
+                <div class="field">
+                  <label for="telegramUser">Telegram 帳戶</label>
+                  <select id="telegramUser" required></select>
+                </div>
+                <div class="field">
+                  <label for="telegramAction">加入方式</label>
+                  <select id="telegramAction">
+                    <option value="create">建立新動態貼圖包</option>
+                    <option value="add">加入已有貼圖包</option>
+                    <option value="send">先傳送一張測試</option>
+                  </select>
+                </div>
+              </div>
+              <div class="telegram-pack-fields" id="telegramPackFields">
+                <div class="field" id="telegramPackTitleField">
+                  <label for="telegramPackTitle">貼圖包顯示名稱</label>
+                  <input
+                    id="telegramPackTitle"
+                    type="text"
+                    maxlength="64"
+                    placeholder="例如：Kosaki 動態貼圖"
+                  >
+                </div>
+                <div class="field">
+                  <label for="telegramPackName">
+                    <span id="telegramPackNameLabel">英文短名（可留空）</span>
+                  </label>
+                  <input
+                    id="telegramPackName"
+                    type="text"
+                    maxlength="128"
+                    placeholder="例如：kosaki_motion"
+                  >
+                  <small id="telegramPackNameHelp">
+                    工具會自動加 _by_你個Bot；留空會自動產生
+                  </small>
+                </div>
+              </div>
+              <div class="field telegram-emoji-field">
+                <label for="telegramEmoji">代表 Emoji</label>
+                <input
+                  id="telegramEmoji"
+                  type="text"
+                  maxlength="16"
+                  value="✨"
+                  required
+                >
+              </div>
+              <button
+                class="telegram-action-button"
+                id="telegramPublishButton"
+                type="submit"
+              >
+                建立並加入 Telegram
+              </button>
+            </form>
+            <a
+              class="telegram-result-link hidden"
+              id="telegramResultLink"
+              target="_blank"
+              rel="noreferrer"
+            >打開 Telegram 貼圖包</a>
+          </section>
+          <section class="whatsapp-pack-builder hidden" id="whatsappPackBuilder">
+            <div class="whatsapp-pack-heading">
+              <span class="whatsapp-pack-icon" aria-hidden="true">WA</span>
+              <div>
+                <strong>WhatsApp 動態貼圖包</strong>
+                <small>將 3–30 段影片成品儲入同一個 Pack</small>
+              </div>
+              <b id="whatsappPackCount">0 / 30</b>
+            </div>
+            <button
+              class="whatsapp-add-current"
+              id="whatsappAddCurrent"
+              type="button"
+            >＋ 將今次動態貼圖加入 Pack</button>
+            <p class="whatsapp-pack-status" id="whatsappPackStatus" role="status">
+              最少加入 3 張，之後可直接輸出 .wastickers。
+            </p>
+            <div class="whatsapp-pack-items" id="whatsappPackItems"></div>
+            <form class="whatsapp-pack-form" id="whatsappPackForm">
+              <div class="telegram-field-grid">
+                <div class="field">
+                  <label for="whatsappPackTitle">貼圖包名稱</label>
+                  <input
+                    id="whatsappPackTitle"
+                    type="text"
+                    maxlength="128"
+                    placeholder="例如：Kosaki 動態 Pack"
+                    required
+                  >
+                </div>
+                <div class="field">
+                  <label for="whatsappPackAuthor">作者</label>
+                  <input
+                    id="whatsappPackAuthor"
+                    type="text"
+                    maxlength="128"
+                    value="TGWA Converter"
+                    required
+                  >
+                </div>
+              </div>
+              <div class="whatsapp-pack-buttons">
+                <button id="whatsappBuildPack" type="submit" disabled>
+                  輸出 WhatsApp 動態貼圖包
+                </button>
+                <button id="whatsappClearPack" type="button">清空</button>
+              </div>
+            </form>
+          </section>
           <div class="result-actions">
             <button class="secondary-button" id="openFolderButton" type="button">
               <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -303,6 +630,11 @@
               </svg>
               <span id="copyLinkLabel">複製手機連結</span>
             </button>
+            <a
+              class="secondary-button bridge-download-button hidden"
+              id="bridgeDownloadButton"
+              href="/bridge-apk"
+            >下載 TGWA Maker.apk</a>
           </div>
         </div>
         <div class="qr-panel">
@@ -314,14 +646,16 @@
             <span class="qr-corner qr-d"></span>
           </div>
           <strong>手機掃一掃</strong>
-          <p>同一個 Wi-Fi 下掃碼下載，再用 Sticker Maker 加入 WhatsApp。</p>
+          <p id="qrPanelText">
+            同一個 Wi-Fi 下掃碼下載，再用 TGWA Maker 加入 WhatsApp。
+          </p>
         </div>
       </section>
     </main>
 
     <footer>
       <span>TG → WA Sticker Relay</span>
-      <span>輸出符合 WhatsApp 512 × 512 貼圖規格</span>
+      <span>輸出符合 Telegram／WhatsApp 512 × 512 動態貼圖規格</span>
     </footer>
 
     <div class="fatal-overlay hidden" id="fatalOverlay">

@@ -1,13 +1,22 @@
+import io
 import gzip
 import json
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 from PIL import Image, ImageDraw
+from tgwa.core import (
+    ConfigStore,
+    JobManager,
+    inspect_video_sticker,
+    save_video_upload,
+)
 
 
 LOTTIE_SAMPLE = {
@@ -161,7 +170,90 @@ class ConversionSmokeTest(unittest.TestCase):
                 for name in sticker_files:
                     self.assertLessEqual(len(archive.read(name)), 500_000)
 
+    def test_video_to_telegram_and_whatsapp_stickers(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            frames = []
+            for index in range(10):
+                image = Image.new("RGB", (320, 180), "#0b1716")
+                draw = ImageDraw.Draw(image)
+                left = 20 + index * 18
+                draw.ellipse(
+                    (left, 48, left + 84, 132),
+                    fill="#25d366",
+                    outline="#ffffff",
+                    width=4,
+                )
+                frames.append(image)
+            source_buffer = io.BytesIO()
+            frames[0].save(
+                source_buffer,
+                format="GIF",
+                save_all=True,
+                append_images=frames[1:],
+                duration=100,
+                loop=0,
+            )
+            for frame in frames:
+                frame.close()
+
+            upload_root = root / "uploads"
+            output_root = root / "output"
+            with (
+                patch("tgwa.core.UPLOAD_ROOT", upload_root),
+                patch("tgwa.core.OUTPUT_ROOT", output_root),
+            ):
+                source_bytes = source_buffer.getvalue()
+                upload = save_video_upload(
+                    io.BytesIO(source_bytes),
+                    len(source_bytes),
+                    "motion.gif",
+                )
+                manager = JobManager(
+                    ConfigStore(root / "config.json"),
+                    lambda: 4173,
+                )
+                job = manager.start_video(
+                    {
+                        "upload_id": upload["upload_id"],
+                        "title": "Motion Test",
+                        "start": 0.1,
+                        "duration": 0.6,
+                        "scale": 0.9,
+                        "offset_x": 12,
+                        "offset_y": -8,
+                        "background": "transparent",
+                    }
+                )
+                deadline = time.monotonic() + 120
+                while time.monotonic() < deadline:
+                    snapshot = manager.snapshot(job["id"])
+                    if snapshot["status"] in {"done", "error", "cancelled"}:
+                        break
+                    time.sleep(0.1)
+                else:
+                    self.fail("Video conversion timed out")
+
+                self.assertEqual(
+                    snapshot["status"],
+                    "done",
+                    "\n".join(snapshot.get("logs", []))
+                    + "\n"
+                    + str(snapshot.get("error")),
+                )
+                self.assertEqual(len(snapshot["outputs"]), 3)
+                ready = Path(snapshot["output_dir"])
+                telegram = next(ready.glob("*.webm"))
+                whatsapp = next(ready.glob("*.webp"))
+                helper = next(ready.glob("*.mp4"))
+                telegram_info = inspect_video_sticker(telegram, "Telegram")
+                whatsapp_info = inspect_video_sticker(whatsapp, "WhatsApp")
+                self.assertLessEqual(telegram_info["size"], 256_000)
+                self.assertLessEqual(whatsapp_info["size"], 500_000)
+                self.assertAlmostEqual(telegram_info["duration"], 0.6, delta=0.1)
+                self.assertAlmostEqual(whatsapp_info["duration"], 0.6, delta=0.1)
+                self.assertGreater(helper.stat().st_size, 0)
+
 
 if __name__ == "__main__":
     unittest.main()
-

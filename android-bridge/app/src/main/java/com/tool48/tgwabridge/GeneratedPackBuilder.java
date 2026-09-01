@@ -1,0 +1,582 @@
+package com.tool48.tgwabridge;
+
+import android.content.Context;
+import android.graphics.BitmapFactory;
+
+import org.json.JSONException;
+
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Locale;
+import java.util.UUID;
+
+final class GeneratedPackBuilder {
+    static final class Item {
+        final File file;
+        final List<String> emojis;
+        final String accessibilityText;
+        final String telegramSourceId;
+        final File telegramSourceFile;
+        final String telegramSourceFormat;
+
+        Item(
+            File file,
+            List<String> emojis,
+            String accessibilityText
+        ) {
+            this(file, emojis, accessibilityText, "", null, "");
+        }
+
+        Item(
+            File file,
+            List<String> emojis,
+            String accessibilityText,
+            String telegramSourceId,
+            File telegramSourceFile,
+            String telegramSourceFormat
+        ) {
+            this.file = file;
+            this.emojis = emojis == null || emojis.isEmpty()
+                ? Collections.singletonList("\uD83D\uDE00")
+                : new ArrayList<>(emojis);
+            this.accessibilityText = accessibilityText == null
+                ? ""
+                : accessibilityText;
+            this.telegramSourceId = telegramSourceId == null
+                ? ""
+                : telegramSourceId.trim();
+            this.telegramSourceFile = telegramSourceFile;
+            this.telegramSourceFormat = telegramSourceFormat == null
+                ? ""
+                : telegramSourceFormat.trim();
+        }
+    }
+
+    private GeneratedPackBuilder() {
+    }
+
+    static List<Pack> buildSplit(
+        Context context,
+        List<Item> staticItems,
+        List<Item> animatedItems,
+        String title,
+        String publisher
+    ) throws IOException, JSONException {
+        return buildSplit(
+            context,
+            staticItems,
+            animatedItems,
+            title,
+            publisher,
+            ""
+        );
+    }
+
+    static List<Pack> buildSplit(
+        Context context,
+        List<Item> staticItems,
+        List<Item> animatedItems,
+        String title,
+        String publisher,
+        String telegramSourceName
+    ) throws IOException, JSONException {
+        if (staticItems.isEmpty() && animatedItems.isEmpty()) {
+            throw new IOException("There are no stickers to build.");
+        }
+        String cleanTitle = clean(title, "Telegram Sticker Pack", 128);
+        String cleanPublisher = clean(publisher, "ゴメン先生", 128);
+        boolean mixed = !staticItems.isEmpty() && !animatedItems.isEmpty();
+        List<Pack> result = new ArrayList<>();
+        List<String> created = new ArrayList<>();
+        List<Pack> previous = PackStore.findTelegramSource(
+            context,
+            telegramSourceName
+        );
+        List<String> retained = new ArrayList<>();
+        try {
+            buildGroup(
+                context,
+                staticItems,
+                cleanTitle,
+                cleanPublisher,
+                false,
+                mixed,
+                telegramSourceName,
+                previous,
+                retained,
+                result,
+                created
+            );
+            buildGroup(
+                context,
+                animatedItems,
+                cleanTitle,
+                cleanPublisher,
+                true,
+                mixed,
+                telegramSourceName,
+                previous,
+                retained,
+                result,
+                created
+            );
+            for (Pack old : previous) {
+                if (!retained.contains(old.identifier)) {
+                    PackStore.deleteTree(
+                        PackStore.packDirectory(context, old.identifier)
+                    );
+                }
+            }
+        } catch (IOException | JSONException | RuntimeException error) {
+            for (String identifier : created) {
+                try {
+                    PackStore.deleteTree(
+                        PackStore.packDirectory(context, identifier)
+                    );
+                } catch (IOException ignored) {
+                    // Keep the original build error.
+                }
+            }
+            throw error;
+        }
+        context.getContentResolver().notifyChange(
+            StickerContentProvider.AUTHORITY_URI,
+            null
+        );
+        return result;
+    }
+
+    static Pack buildAnimated(
+        Context context,
+        List<Item> items,
+        String title,
+        String publisher
+    ) throws IOException, JSONException {
+        List<Pack> packs = buildSplit(
+            context,
+            Collections.emptyList(),
+            items,
+            title,
+            publisher
+        );
+        if (packs.size() != 1) {
+            throw new IOException(
+                "Maker queue must produce exactly one animated pack."
+            );
+        }
+        return packs.get(0);
+    }
+
+    static Pack buildSingle(
+        Context context,
+        List<Item> items,
+        String title,
+        String publisher,
+        boolean animated,
+        Pack existing
+    ) throws IOException, JSONException {
+        if (items.isEmpty() || items.size() > 30) {
+            throw new IOException("A sticker pack needs 1 to 30 stickers.");
+        }
+        Pack pack = writePack(
+            context,
+            items,
+            clean(title, "Sticker Pack", 128),
+            clean(publisher, "ゴメン先生", 128),
+            animated,
+            existing == null ? "" : existing.identifier,
+            existing == null ? "" : existing.telegramSourceName,
+            existing == null ? -1 : existing.telegramPartIndex
+        );
+        context.getContentResolver().notifyChange(
+            StickerContentProvider.AUTHORITY_URI,
+            null
+        );
+        return pack;
+    }
+
+    private static void buildGroup(
+        Context context,
+        List<Item> items,
+        String baseTitle,
+        String publisher,
+        boolean animated,
+        boolean mixed,
+        String telegramSourceName,
+        List<Pack> previous,
+        List<String> retained,
+        List<Pack> result,
+        List<String> created
+    ) throws IOException, JSONException {
+        if (items.isEmpty()) {
+            return;
+        }
+        List<Integer> sizes = PackPartitioner.sizes(items.size());
+        String typeName = animated ? "Animated" : "Static";
+        String groupTitle = mixed
+            ? baseTitle + " - " + typeName
+            : baseTitle;
+        int offset = 0;
+        for (int partIndex = 0; partIndex < sizes.size(); partIndex++) {
+            int size = sizes.get(partIndex);
+            String proposedTitle = sizes.size() > 1
+                ? groupTitle + " - Part " + (partIndex + 1)
+                : groupTitle;
+            Pack existingPack = existingPack(
+                previous,
+                animated,
+                partIndex
+            );
+            String partTitle = existingPack == null
+                ? proposedTitle
+                : existingPack.name;
+            List<Item> partItems = new ArrayList<>(
+                items.subList(offset, offset + size)
+            );
+            if (
+                existingPack != null
+                && existingPack.publisher.equals(publisher)
+                && unchangedTelegramPart(context, existingPack, partItems)
+            ) {
+                result.add(existingPack);
+                retained.add(existingPack.identifier);
+                offset += size;
+                continue;
+            }
+            String existingIdentifier = existingPack == null
+                ? ""
+                : existingPack.identifier;
+            Pack pack = writePack(
+                context,
+                partItems,
+                partTitle,
+                publisher,
+                animated,
+                existingIdentifier,
+                telegramSourceName,
+                partIndex
+            );
+            result.add(pack);
+            retained.add(pack.identifier);
+            if (existingIdentifier.isEmpty()) {
+                created.add(pack.identifier);
+            }
+            offset += size;
+        }
+    }
+
+    private static Pack writePack(
+        Context context,
+        List<Item> items,
+        String title,
+        String publisher,
+        boolean animated,
+        String existingIdentifier,
+        String telegramSourceName,
+        int telegramPartIndex
+    ) throws IOException, JSONException {
+        String identifier = existingIdentifier.isEmpty()
+            ? identifier(title)
+            : existingIdentifier;
+        File staging = new File(
+            PackStore.root(context),
+            ".generated-" + UUID.randomUUID().toString()
+        );
+        File destination = PackStore.packDirectory(context, identifier);
+        if (!staging.mkdirs()) {
+            throw new IOException("Cannot create a temporary pack folder.");
+        }
+        try {
+            List<Sticker> stickers = new ArrayList<>();
+            byte[] first = null;
+            for (int index = 0; index < items.size(); index++) {
+                Item item = items.get(index);
+                byte[] data = read(item.file, animated ? 500 : 100);
+                validate(data, animated, index + 1);
+                if (first == null) {
+                    first = data;
+                }
+                String fileName = String.format(
+                    Locale.ROOT,
+                    "%03d.webp",
+                    index + 1
+                );
+                write(new File(staging, fileName), data);
+                String telegramFileName = "";
+                if (
+                    item.telegramSourceFile != null
+                    && item.telegramSourceFile.isFile()
+                    && validTelegramFormat(item.telegramSourceFormat)
+                ) {
+                    telegramFileName = String.format(
+                        Locale.ROOT,
+                        "telegram-%03d.%s",
+                        index + 1,
+                        telegramExtension(item.telegramSourceFormat)
+                    );
+                    copy(
+                        item.telegramSourceFile,
+                        new File(staging, telegramFileName),
+                        8 * 1024 * 1024
+                    );
+                }
+                stickers.add(
+                    new Sticker(
+                        fileName,
+                        item.emojis,
+                        item.accessibilityText.isEmpty()
+                            ? title + " sticker " + (index + 1)
+                            : item.accessibilityText,
+                        item.telegramSourceId,
+                        telegramFileName,
+                        telegramFileName.isEmpty()
+                            ? ""
+                            : item.telegramSourceFormat
+                    )
+                );
+            }
+            PackImporter.writeTray(
+                new File(staging, "cover.png"),
+                null,
+                first
+            );
+            Pack pack = new Pack(
+                identifier,
+                title,
+                publisher,
+                "cover.png",
+                Long.toString(System.currentTimeMillis()),
+                animated,
+                stickers,
+                telegramSourceName,
+                telegramPartIndex
+            );
+            PackStore.writePack(staging, pack);
+            replace(staging, destination);
+            return pack;
+        } catch (IOException | JSONException | RuntimeException error) {
+            try {
+                PackStore.deleteTree(staging);
+            } catch (IOException ignored) {
+                // Keep the original build error.
+            }
+            throw error;
+        }
+    }
+
+    private static Pack existingPack(
+        List<Pack> packs,
+        boolean animated,
+        int partIndex
+    ) {
+        for (Pack pack : packs) {
+            if (
+                pack.animated == animated
+                && pack.telegramPartIndex == partIndex
+            ) {
+                return pack;
+            }
+        }
+        return null;
+    }
+
+    private static boolean unchangedTelegramPart(
+        Context context,
+        Pack existing,
+        List<Item> items
+    ) {
+        if (existing.stickers.size() != items.size()) {
+            return false;
+        }
+        File directory = PackStore.packDirectory(
+            context,
+            existing.identifier
+        );
+        for (int index = 0; index < items.size(); index++) {
+            Sticker stored = existing.stickers.get(index);
+            String sourceId = items.get(index).telegramSourceId;
+            if (
+                sourceId.isEmpty()
+                || !sourceId.equals(stored.telegramSourceId)
+                || !items.get(index).emojis.equals(stored.emojis)
+                || !new File(directory, stored.fileName).isFile()
+            ) {
+                return false;
+            }
+            if (
+                items.get(index).telegramSourceFile != null
+                && (
+                    stored.telegramSourceFile.isEmpty()
+                    || !items.get(index).telegramSourceFormat.equals(
+                        stored.telegramSourceFormat
+                    )
+                    || !new File(
+                        directory,
+                        stored.telegramSourceFile
+                    ).isFile()
+                )
+            ) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static void replace(File staging, File destination)
+        throws IOException {
+        if (!destination.exists()) {
+            if (!staging.renameTo(destination)) {
+                throw new IOException("Cannot finish the generated pack.");
+            }
+            return;
+        }
+        File backup = new File(
+            destination.getParentFile(),
+            ".backup-" + UUID.randomUUID().toString()
+        );
+        if (!destination.renameTo(backup)) {
+            throw new IOException("Cannot prepare the existing pack update.");
+        }
+        if (!staging.renameTo(destination)) {
+            backup.renameTo(destination);
+            throw new IOException("Cannot finish the updated pack.");
+        }
+        try {
+            PackStore.deleteTree(backup);
+        } catch (IOException ignored) {
+            // The updated pack is already complete; stale backup is harmless.
+        }
+    }
+
+    private static boolean validTelegramFormat(String value) {
+        return "static".equals(value)
+            || "animated".equals(value)
+            || "video".equals(value);
+    }
+
+    private static String telegramExtension(String format) {
+        if ("animated".equals(format)) {
+            return "tgs";
+        }
+        if ("video".equals(format)) {
+            return "webm";
+        }
+        return "webp";
+    }
+
+    private static void copy(
+        File source,
+        File destination,
+        int maximum
+    ) throws IOException {
+        try (
+            FileInputStream input = new FileInputStream(source);
+            FileOutputStream output = new FileOutputStream(destination)
+        ) {
+            byte[] buffer = new byte[8192];
+            int total = 0;
+            int count;
+            while ((count = input.read(buffer)) != -1) {
+                total += count;
+                if (total > maximum) {
+                    throw new IOException(
+                        "Telegram source sticker exceeds the safe limit."
+                    );
+                }
+                output.write(buffer, 0, count);
+            }
+        }
+    }
+
+    private static void validate(
+        byte[] data,
+        boolean expectedAnimated,
+        int index
+    ) throws IOException {
+        int limit = expectedAnimated ? 500 * 1024 : 100 * 1024;
+        if (data.length > limit) {
+            throw new IOException(
+                "Sticker " + index + " exceeds the WhatsApp size limit."
+            );
+        }
+        WebpInspector.Result webp = WebpInspector.inspect(data);
+        if (webp.animated != expectedAnimated) {
+            throw new IOException(
+                "Sticker "
+                    + index
+                    + " does not match the pack animation type."
+            );
+        }
+        BitmapFactory.Options bounds = new BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        BitmapFactory.decodeByteArray(data, 0, data.length, bounds);
+        if (bounds.outWidth != 512 || bounds.outHeight != 512) {
+            throw new IOException(
+                "Sticker " + index + " is not exactly 512 x 512."
+            );
+        }
+    }
+
+    private static byte[] read(File file, int maximumKb)
+        throws IOException {
+        int maximum = maximumKb * 1024;
+        try (
+            FileInputStream input = new FileInputStream(file);
+            ByteArrayOutputStream output =
+                new ByteArrayOutputStream(
+                    (int) Math.min(file.length(), maximum)
+                )
+        ) {
+            byte[] buffer = new byte[8192];
+            int count;
+            while ((count = input.read(buffer)) != -1) {
+                if (output.size() + count > maximum) {
+                    throw new IOException(
+                        file.getName() + " exceeds the size limit."
+                    );
+                }
+                output.write(buffer, 0, count);
+            }
+            return output.toByteArray();
+        }
+    }
+
+    private static void write(File destination, byte[] data)
+        throws IOException {
+        try (FileOutputStream output = new FileOutputStream(destination)) {
+            output.write(data);
+        }
+    }
+
+    private static String clean(
+        String value,
+        String fallback,
+        int maximum
+    ) {
+        String clean = value == null ? "" : value.trim();
+        if (clean.isEmpty()) {
+            clean = fallback;
+        }
+        return clean.substring(0, Math.min(maximum, clean.length()));
+    }
+
+    private static String identifier(String title) {
+        String base = title.toLowerCase(Locale.ROOT)
+            .replaceAll("[^a-z0-9_.-]+", "_")
+            .replaceAll("^_+|_+$", "");
+        if (base.isEmpty()) {
+            base = "tgwa_maker";
+        }
+        return base.substring(0, Math.min(72, base.length()))
+            + "_"
+            + UUID.randomUUID().toString()
+                .replace("-", "")
+                .substring(0, 10);
+    }
+}

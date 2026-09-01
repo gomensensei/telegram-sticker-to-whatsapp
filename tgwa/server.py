@@ -25,11 +25,13 @@ from tgwa.core import (
     ROOT,
     UserInputError,
     mobile_share_page,
+    save_video_upload,
 )
 
 
 STATIC_DIR = ROOT / "static"
 SERVER_STATE = LOCAL_DIR / "server.json"
+BRIDGE_APK = ROOT / "android-bridge" / "dist" / "TGWA-Maker.apk"
 
 
 class AppServer(ThreadingHTTPServer):
@@ -63,6 +65,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         self.send_header(
             "Content-Security-Policy",
             "default-src 'self'; img-src 'self' data: blob:; "
+            "media-src 'self' blob:; "
             "style-src 'self' 'unsafe-inline'; script-src 'self'; "
             "connect-src 'self'; frame-ancestors 'none'",
         )
@@ -140,6 +143,16 @@ class RequestHandler(BaseHTTPRequestHandler):
             self._send_json(self.server.manager.config.public())
             return
 
+        if path == "/api/video-pack":
+            if not self._require_authorized():
+                return
+            self._send_json(self.server.manager.video_pack_snapshot())
+            return
+
+        if path == "/bridge-apk":
+            self._serve_bridge_apk()
+            return
+
         if path.startswith("/api/jobs/"):
             if not self._require_authorized():
                 return
@@ -175,6 +188,31 @@ class RequestHandler(BaseHTTPRequestHandler):
             return
         path = urllib.parse.urlparse(self.path).path
         try:
+            if path == "/api/video/upload":
+                length_header = self.headers.get("Content-Length", "")
+                try:
+                    length = int(length_header)
+                except ValueError:
+                    raise UserInputError("影片上載格式錯誤。")
+                filename = urllib.parse.unquote(
+                    self.headers.get("X-File-Name", "")
+                )
+                info = save_video_upload(self.rfile, length, filename)
+                self._send_json(info, HTTPStatus.CREATED)
+                return
+
+            if path == "/api/video/convert":
+                job = self.server.manager.start_video(self._read_json())
+                self._send_json(job, HTTPStatus.ACCEPTED)
+                return
+
+            if path == "/api/telegram/connect":
+                connection = self.server.manager.connect_telegram(
+                    self._read_json()
+                )
+                self._send_json(connection)
+                return
+
             if path == "/api/convert":
                 job = self.server.manager.start(self._read_json())
                 self._send_json(job, HTTPStatus.ACCEPTED)
@@ -185,6 +223,25 @@ class RequestHandler(BaseHTTPRequestHandler):
                 self._send_json({"ok": True})
                 return
 
+            if path == "/api/video-pack/remove":
+                payload = self._read_json()
+                self._send_json(
+                    self.server.manager.remove_video_from_pack(
+                        str(payload.get("item_id", ""))
+                    )
+                )
+                return
+
+            if path == "/api/video-pack/clear":
+                self._read_json()
+                self._send_json(self.server.manager.clear_video_pack())
+                return
+
+            if path == "/api/video-pack/build":
+                job = self.server.manager.build_video_pack(self._read_json())
+                self._send_json(job, HTTPStatus.CREATED)
+                return
+
             if path.startswith("/api/jobs/"):
                 parts = path.strip("/").split("/")
                 if len(parts) == 4 and parts[3] == "cancel":
@@ -193,6 +250,19 @@ class RequestHandler(BaseHTTPRequestHandler):
                 if len(parts) == 4 and parts[3] == "open":
                     self.server.manager.open_output(parts[2])
                     self._send_json({"ok": True})
+                    return
+                if len(parts) == 4 and parts[3] == "telegram":
+                    result = self.server.manager.publish_telegram(
+                        parts[2],
+                        self._read_json(),
+                    )
+                    self._send_json(result)
+                    return
+                if len(parts) == 4 and parts[3] == "video-pack":
+                    self._read_json()
+                    self._send_json(
+                        self.server.manager.add_video_to_pack(parts[2])
+                    )
                     return
 
             if path == "/api/shutdown":
@@ -231,6 +301,23 @@ class RequestHandler(BaseHTTPRequestHandler):
         }:
             mime += "; charset=utf-8"
         self._send_bytes(candidate.read_bytes(), mime)
+
+    def _serve_bridge_apk(self) -> None:
+        if not BRIDGE_APK.is_file():
+            self._send_json(
+                {"error": "TGWA Maker APK 尚未編譯完成。"},
+                HTTPStatus.NOT_FOUND,
+            )
+            return
+        self._send_bytes(
+            BRIDGE_APK.read_bytes(),
+            "application/vnd.android.package-archive",
+            extra_headers={
+                "Content-Disposition": (
+                    'attachment; filename="TGWA-Maker.apk"'
+                )
+            },
+        )
 
     def _serve_qr(self, job_id: str) -> None:
         try:
@@ -311,21 +398,37 @@ class RequestHandler(BaseHTTPRequestHandler):
         job: dict[str, Any],
         filename: str,
     ) -> None:
-        allowed = {item["filename"] for item in job.get("packages", [])}
+        allowed_items = [
+            *job.get("packages", []),
+            *job.get("outputs", []),
+        ]
+        allowed = {item["filename"] for item in allowed_items}
         if filename not in allowed:
-            self._send_json({"error": "搵唔到貼圖包。"}, HTTPStatus.NOT_FOUND)
+            self._send_json({"error": "搵唔到輸出檔案。"}, HTTPStatus.NOT_FOUND)
             return
         candidate = (Path(job["output_dir"]) / filename).resolve()
         if not candidate.is_file() or candidate.parent != Path(
             job["output_dir"]
         ).resolve():
-            self._send_json({"error": "搵唔到貼圖包。"}, HTTPStatus.NOT_FOUND)
+            self._send_json({"error": "搵唔到輸出檔案。"}, HTTPStatus.NOT_FOUND)
             return
-        ascii_name = "telegram-whatsapp-stickers.wastickers"
+        extension = candidate.suffix.lower()
+        if extension == ".webm":
+            ascii_name = "telegram-video-sticker.webm"
+            content_type = "video/webm"
+        elif extension == ".webp":
+            ascii_name = "whatsapp-animated-sticker.webp"
+            content_type = "image/webp"
+        elif extension == ".mp4":
+            ascii_name = "sticker-maker-import.mp4"
+            content_type = "video/mp4"
+        else:
+            ascii_name = "telegram-whatsapp-stickers.wastickers"
+            content_type = "application/x-wastickers"
         encoded_name = urllib.parse.quote(filename)
         self._send_bytes(
             candidate.read_bytes(),
-            "application/octet-stream",
+            content_type,
             extra_headers={
                 "Content-Disposition": (
                     f'attachment; filename="{ascii_name}"; '
