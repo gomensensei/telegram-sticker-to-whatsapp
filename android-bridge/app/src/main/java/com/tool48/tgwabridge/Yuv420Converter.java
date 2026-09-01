@@ -1,6 +1,7 @@
 package com.tool48.tgwabridge;
 
 import android.graphics.Bitmap;
+import android.graphics.ImageFormat;
 import android.graphics.Rect;
 import android.media.Image;
 
@@ -148,6 +149,14 @@ final class Yuv420Converter {
             if (width <= 0 || height <= 0) {
                 throw new IOException(
                     "Android decoder returned an empty video frame. "
+                    + describe(image)
+                );
+            }
+            if (isTenBitP010(image, planes)) {
+                throw new IOException(
+                    "Android exposed this frame as 10-bit P010. "
+                        + "Use the RGB compatibility decoder so HDR/10-bit "
+                        + "video cannot turn grey or magenta-green. "
                         + describe(image)
                 );
             }
@@ -322,6 +331,35 @@ final class Yuv420Converter {
             plane.getRowStride(),
             plane.getPixelStride()
         );
+    }
+
+    private static boolean isTenBitP010(
+        Image image,
+        Image.Plane[] planes
+    ) {
+        return isTenBitLayout(
+            image.getFormat(),
+            image.getWidth(),
+            planes[0].getRowStride(),
+            planes[0].getPixelStride()
+        );
+    }
+
+    static boolean isTenBitLayout(
+        int format,
+        int width,
+        int yRowStride,
+        int yPixelStride
+    ) {
+        if (format == ImageFormat.YCBCR_P010) {
+            return true;
+        }
+        // YUV_420_888 guarantees an 8-bit Y plane with pixel stride 1.
+        // A few vendor codecs label P010 as flexible YUV; detect the 16-bit
+        // luma layout as well so it falls back before bytes are misread.
+        return width > 0
+            && yPixelStride >= 2
+            && yRowStride >= width * 2;
     }
 
     private static int toColor(int y, int u, int v) {

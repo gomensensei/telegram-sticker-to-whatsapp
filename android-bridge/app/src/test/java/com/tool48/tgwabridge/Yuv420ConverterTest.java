@@ -1,12 +1,27 @@
 package com.tool48.tgwabridge;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
 import java.nio.ByteBuffer;
 
 public final class Yuv420ConverterTest {
+    @Test
+    public void detectsStandardAndVendorLabelledP010Layouts() {
+        assertTrue(
+            Yuv420Converter.isTenBitLayout(54, 512, 1_024, 2)
+        );
+        assertTrue(
+            Yuv420Converter.isTenBitLayout(35, 512, 1_024, 2)
+        );
+        assertFalse(
+            Yuv420Converter.isTenBitLayout(35, 512, 512, 1)
+        );
+    }
+
     @Test
     public void readsPaddedYuvPlanesUsingTheirOwnStrides() {
         ByteBuffer y = ByteBuffer.allocate(12);

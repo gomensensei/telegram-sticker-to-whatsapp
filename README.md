@@ -124,7 +124,7 @@ WhatsApp 官方格式重點（貼圖包模式）：
 但不能用 Android `Bitmap.compress()` 將影片逐格「另存 WebP」代替真正動畫
 編碼；該路徑只會產生單幀 WebP，加入 WhatsApp 後就會變定格。
 
-`TGWA Maker 2.4.1` 已在 APK 內完成：
+`TGWA Maker 2.4.2` 已在 APK 內完成：
 
 - 貼上 Telegram sticker pack 連結後，直接以 Bot API 下載整包。
 - 靜態 WebP／PNG、TGS 及 WEBM 分別解碼；TGS 由 Lottie 渲染，影片及 WEBM
@@ -160,7 +160,9 @@ WhatsApp 官方格式重點（貼圖包模式）：
   seek。系統順序解碼不可用時，仍保留原有兩條抽格路徑作後備。
 - YUV converter 會自動判斷 crop／plane 原點，並兼容奇數尺寸影片截短的 chroma
   尾行／尾列；讀取會保留 Android 回報嘅 plane buffer 起點、row stride 同 pixel
-  stride，避免部分手機經 JNI 直讀時出現灰畫面、綠色或紫色濛格。
+  stride。2.4.2 會額外拒絕 10-bit P010／廠商錯誤標示成 flexible YUV 嘅 16-bit
+  畫格，再用系統 RGB 預覽抽樣校驗 raw 解碼色彩；一旦發現灰畫面或紫綠濛格，
+  即自動改用安全 RGB decoder，唔會將壞色畫格輸出成貼圖。
 - Telegram WEBM 會先順序解碼一次並暫存已排版的 512 × 512 畫格；若首次壓縮
   超過 500 KB，之後的 FPS／畫質嘗試會重用同一批畫格，不再把影片重複解碼
   最多 9 次。記憶體不足時會自動使用原有低記憶體後備路徑。

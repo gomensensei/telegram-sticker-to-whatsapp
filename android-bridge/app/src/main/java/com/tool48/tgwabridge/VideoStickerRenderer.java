@@ -31,6 +31,13 @@ final class VideoStickerRenderer {
         }
     }
 
+    private static final class ColorMismatchException
+        extends IOException {
+        ColorMismatchException(String message) {
+            super(message);
+        }
+    }
+
     private static final class FrameCache implements AutoCloseable {
         final List<Bitmap> frames;
 
@@ -198,7 +205,9 @@ final class VideoStickerRenderer {
             if (listener != null) {
                 listener.onProgress(
                     0,
-                    "Using the Android compatibility decoder..."
+                    error instanceof ColorMismatchException
+                        ? "Raw video colors looked corrupted; using the safe RGB decoder..."
+                        : "Using the Android compatibility decoder..."
                 );
             }
         }
@@ -429,11 +438,101 @@ final class VideoStickerRenderer {
                         + " required frames."
                 );
             }
+            verifyCachedColors(
+                context,
+                uri,
+                settings,
+                frames.get(0)
+            );
             return new FrameCache(frames);
         } catch (IOException | RuntimeException error) {
             new FrameCache(frames).close();
             throw error;
         }
+    }
+
+    private static void verifyCachedColors(
+        Context context,
+        Uri uri,
+        VideoStickerSettings settings,
+        Bitmap decoded
+    ) throws IOException {
+        Bitmap referenceSource = previewAt(
+            context,
+            uri,
+            settings.startMs
+        );
+        Bitmap reference = null;
+        Bitmap adjacentSource = null;
+        Bitmap adjacent = null;
+        try {
+            reference = compose(referenceSource, settings);
+            int delta = sampledRgbDelta(decoded, reference);
+            long adjacentMs = Math.min(
+                settings.startMs + settings.durationMs - 1L,
+                settings.startMs + 50L
+            );
+            if (adjacentMs > settings.startMs) {
+                try {
+                    adjacentSource = previewAt(context, uri, adjacentMs);
+                    adjacent = compose(adjacentSource, settings);
+                    delta = Math.min(
+                        delta,
+                        sampledRgbDelta(decoded, adjacent)
+                    );
+                } catch (IOException ignored) {
+                    // The exact start frame remains a valid reference. Some
+                    // retrievers cannot seek a second time near a clip edge.
+                }
+            }
+            if (delta > 48) {
+                throw new ColorMismatchException(
+                    "Android raw YUV differs from its RGB preview by "
+                        + delta
+                        + " levels; refusing the grey/magenta-green frame."
+                );
+            }
+        } finally {
+            referenceSource.recycle();
+            if (reference != null) {
+                reference.recycle();
+            }
+            if (adjacentSource != null && adjacentSource != referenceSource) {
+                adjacentSource.recycle();
+            }
+            if (adjacent != null && adjacent != reference) {
+                adjacent.recycle();
+            }
+        }
+    }
+
+    static int sampledRgbDelta(Bitmap first, Bitmap second) {
+        if (
+            first == null
+            || second == null
+            || first.getWidth() != second.getWidth()
+            || first.getHeight() != second.getHeight()
+        ) {
+            return 255;
+        }
+        int width = first.getWidth();
+        int height = first.getHeight();
+        int step = Math.max(1, Math.min(width, height) / 16);
+        long difference = 0L;
+        int samples = 0;
+        for (int y = step / 2; y < height; y += step) {
+            for (int x = step / 2; x < width; x += step) {
+                int one = first.getPixel(x, y);
+                int two = second.getPixel(x, y);
+                difference += Math.abs(Color.red(one) - Color.red(two));
+                difference += Math.abs(Color.green(one) - Color.green(two));
+                difference += Math.abs(Color.blue(one) - Color.blue(two));
+                samples += 3;
+            }
+        }
+        return samples == 0
+            ? 255
+            : (int) Math.min(255L, difference / samples);
     }
 
     private static Result encodeFromCache(

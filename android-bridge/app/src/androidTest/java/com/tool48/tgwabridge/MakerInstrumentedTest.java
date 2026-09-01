@@ -175,6 +175,64 @@ public final class MakerInstrumentedTest {
     }
 
     @Test
+    public void detectsGreyAndMagentaGreenRawVideoCorruption() {
+        Bitmap reference = Bitmap.createBitmap(
+            512,
+            512,
+            Bitmap.Config.ARGB_8888
+        );
+        Bitmap matching = Bitmap.createBitmap(
+            512,
+            512,
+            Bitmap.Config.ARGB_8888
+        );
+        Bitmap corrupted = Bitmap.createBitmap(
+            512,
+            512,
+            Bitmap.Config.ARGB_8888
+        );
+        try {
+            reference.eraseColor(Color.rgb(230, 45, 35));
+            matching.eraseColor(Color.rgb(225, 48, 39));
+            Canvas canvas = new Canvas(corrupted);
+            Paint paint = new Paint();
+            int block = 32;
+            for (int y = 0; y < 512; y += block) {
+                for (int x = 0; x < 512; x += block) {
+                    paint.setColor(
+                        ((x + y) / block) % 2 == 0
+                            ? Color.rgb(115, 115, 115)
+                            : Color.rgb(160, 20, 175)
+                    );
+                    canvas.drawRect(
+                        x,
+                        y,
+                        x + block,
+                        y + block,
+                        paint
+                    );
+                }
+            }
+            assertTrue(
+                VideoStickerRenderer.sampledRgbDelta(
+                    reference,
+                    matching
+                ) < 10
+            );
+            assertTrue(
+                VideoStickerRenderer.sampledRgbDelta(
+                    reference,
+                    corrupted
+                ) > 48
+            );
+        } finally {
+            reference.recycle();
+            matching.recycle();
+            corrupted.recycle();
+        }
+    }
+
+    @Test
     public void staticRendererProducesValidStaticWebp() throws Exception {
         Bitmap source = Bitmap.createBitmap(
             300,

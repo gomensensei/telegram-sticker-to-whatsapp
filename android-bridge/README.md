@@ -1,6 +1,6 @@
 # TGWA Maker Android
 
-TGWA Maker 2.4.1 is an on-phone Telegram/WhatsApp sticker converter and static
+TGWA Maker 2.4.2 is an on-phone Telegram/WhatsApp sticker converter and static
 or animated sticker maker.
 
 ## Features
@@ -62,9 +62,10 @@ or animated sticker maker.
 - Detects crop-relative and already-cropped plane origins and safely reuses the
   final valid chroma sample when a vendor decoder truncates the last chroma
   row or column of an odd-sized frame.
-- Reads decoder YUV planes through Android's stride-aware Java buffer view so
-  vendor-specific plane origins cannot turn the output grey with green or
-  magenta chroma blocks.
+- Reads decoder YUV planes through Android's stride-aware Java buffer view,
+  rejects 10-bit P010 or vendor-mislabelled 16-bit frames, and checks the raw
+  decoder's sampled RGB values against Android's RGB preview. A suspicious grey
+  or magenta/green result automatically switches to the safe RGB decoder.
 - Decodes each WEBM clip once into a guarded composed-frame cache and reuses
   those frames across quality/FPS attempts. Low-memory devices retain the
   compatibility path.
